@@ -23,6 +23,12 @@ pub struct SockHolder<const N: usize, const BASE: usize> {
     sockets: [Option<(Socket, ClientSocketOp)>; N],
 }
 
+impl<const N: usize, const BASE: usize> Default for SockHolder<N, BASE> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize, const BASE: usize> SockHolder<N, BASE> {
     pub fn new() -> Self {
         Self {

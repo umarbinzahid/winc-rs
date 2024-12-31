@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
     let stream_ = TcpStream::connect(prints).unwrap();
 
     type StreamType<'a> = LocalIoWrapper<&'a TcpStream>;
-    let mut stream: StreamType = LocalIoWrapper::new(&stream_);
+    let stream: StreamType = LocalIoWrapper::new(&stream_);
 
     let mut manager = Manager::from_xfer(PrefixXfer::new(stream), Callbacks {});
 

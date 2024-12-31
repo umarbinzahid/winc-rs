@@ -29,7 +29,7 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
         remote: core::net::SocketAddr,
     ) -> Result<(), Self::Error> {
         let mgr = self.manager.as_mut().ok_or(UdpClientError::NoManager)?;
-        let (sh, op) = self
+        let (sh, _op) = self
             .udp_sockets
             .get(*socket)
             .ok_or(UdpClientError::SocketError)?;
@@ -53,7 +53,7 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
     ) -> embedded_nal::nb::Result<(usize, core::net::SocketAddr), Self::Error> {
         self.spin().ok();
         let mgr = self.manager.as_mut().ok_or(UdpClientError::NoManager)?;
-        let (sh, op) = self
+        let (sh, _op) = self
             .udp_sockets
             .get(*socket)
             .ok_or(UdpClientError::SocketError)?;

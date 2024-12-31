@@ -6,10 +6,10 @@ use core::str::FromStr;
 use feather as bsp;
 use stack::StackError;
 
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use embedded_nal::nb::block;
 use embedded_nal::UdpClientStack;
-use embedded_nal::{IpAddr, Ipv4Addr, SocketAddr};
-use wincwifi::{Ipv4AddrFormatWrapper, SocketAddrV4};
+use wincwifi::Ipv4AddrFormatWrapper;
 
 const DEFAULT_TEST_IP: &str = "192.168.1.1";
 const DEFAULT_TEST_PORT: &str = "12345";
@@ -52,7 +52,7 @@ where
                     Ipv4AddrFormatWrapper::new(sa.ip())
                 );
             }
-            SocketAddr::V6(sa) => {
+            SocketAddr::V6(_sa) => {
                 unreachable!("Shouldn't get here")
             }
         }

@@ -42,7 +42,7 @@ fn crc16(input: &[u8]) -> u16 {
 struct HexWrap<'a> {
     v: &'a [u8],
 }
-impl<'a> core::fmt::LowerHex for HexWrap<'a> {
+impl core::fmt::LowerHex for HexWrap<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         for elem in self.v {
             write!(f, " {:02x}", elem)?;

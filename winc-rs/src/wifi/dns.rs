@@ -1,6 +1,6 @@
+use core::net::IpAddr;
 use embedded_nal::AddrType;
 use embedded_nal::Dns;
-use embedded_nal::IpAddr;
 
 use crate::transfer::Xfer;
 use crate::WincClient;
@@ -17,10 +17,10 @@ impl<X: Xfer> Dns for WincClient<X> {
     }
 
     fn get_host_by_address(
-        &self,
+        &mut self,
         _addr: core::net::IpAddr,
         _result: &mut [u8],
-    ) -> Result<usize, <Self as Dns>::Error> {
+    ) -> Result<usize, embedded_nal::nb::Error<<Self as Dns>::Error>> {
         todo!()
     }
 }

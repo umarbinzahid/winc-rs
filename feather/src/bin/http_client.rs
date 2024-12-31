@@ -6,9 +6,9 @@ use core::str::FromStr;
 use feather as bsp;
 use stack::StackError;
 
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use embedded_nal::nb::block;
 use embedded_nal::TcpClientStack;
-use embedded_nal::{IpAddr, Ipv4Addr, SocketAddr};
 
 const DEFAULT_TEST_IP: &str = "192.168.1.1";
 const DEFAULT_TEST_PORT: &str = "12345";

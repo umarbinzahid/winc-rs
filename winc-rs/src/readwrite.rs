@@ -33,7 +33,7 @@ pub trait Read {
                 let tmp = buf;
                 buf = &mut tmp[read_bytes..];
             }
-            return Ok(());
+            Ok(())
         } else {
             Err(ReadExactError::UnexpectedEnd)
         }

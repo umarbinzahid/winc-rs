@@ -1,7 +1,6 @@
 use core::convert::Infallible;
 
 use embedded_nal::{TcpClientStack, UdpClientStack};
-use feather_m0::pac::dsu::addr;
 use wincwifi::manager::EventListener;
 use wincwifi::manager::SocketError;
 use wincwifi::Ipv4AddrFormatWrapper;
@@ -376,11 +375,11 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
     fn connect(
         &mut self,
         socket: &mut <Self as TcpClientStack>::TcpSocket,
-        remote: embedded_nal::SocketAddr,
+        remote: core::net::SocketAddr,
     ) -> Result<(), nb::Error<<Self as TcpClientStack>::Error>> {
         self.dispatch_events()?;
         match remote {
-            embedded_nal::SocketAddr::V4(addr) => {
+            core::net::SocketAddr::V4(addr) => {
                 let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
                 *op = ClientSocketOp::Connect;
                 let op = *op;
@@ -390,7 +389,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
                     .map_err(|x| StackError::ConnectSendFailed(x))?;
                 self.wait_for_op_ack(*socket, op, Self::CONNECT_TIMEOUT, true)?;
             }
-            embedded_nal::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
+            core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
         }
         Ok(())
     }
@@ -433,7 +432,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
     }
     fn close(&mut self, socket: <Self as TcpClientStack>::TcpSocket) -> Result<(), Self::Error> {
         self.dispatch_events()?;
-        let (sock, op) = self.callbacks.tcp_sockets.get(socket).unwrap();
+        let (sock, _op) = self.callbacks.tcp_sockets.get(socket).unwrap();
         self.manager
             .send_close(*sock)
             .map_err(|x| StackError::SendCloseFailed(x))?;
@@ -467,13 +466,13 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
     fn connect(
         &mut self,
         socket: &mut Self::UdpSocket,
-        remote: embedded_nal::SocketAddr,
+        remote: core::net::SocketAddr,
     ) -> Result<(), Self::Error> {
         self.dispatch_events()?;
         match remote {
-            embedded_nal::SocketAddr::V4(addr) => {
+            core::net::SocketAddr::V4(addr) => {
                 defmt::info!("<> Connect handle is {:?}", socket.0);
-                let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
+                let (_sock, _op) = self.callbacks.udp_sockets.get(*socket).unwrap();
                 self.last_send_addr = Some(addr);
                 /*
                 *op = ClientSocketOp::Connect;
@@ -486,7 +485,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
                 self.wait_for_op_ack(*socket, op, Self::CONNECT_TIMEOUT, false)?;
                  */
             }
-            embedded_nal::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
+            core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
         }
         Ok(())
     }
@@ -513,7 +512,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         &mut self,
         socket: &mut Self::UdpSocket,
         buffer: &mut [u8],
-    ) -> nb::Result<(usize, embedded_nal::SocketAddr), Self::Error> {
+    ) -> nb::Result<(usize, core::net::SocketAddr), Self::Error> {
         self.dispatch_events()?;
         let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
         *op = ClientSocketOp::RecvFrom;
@@ -530,12 +529,12 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         }
         // todo: propagate back the actual address
         let f = self.last_send_addr.unwrap();
-        Ok((recv_len, embedded_nal::SocketAddr::V4(f)))
+        Ok((recv_len, core::net::SocketAddr::V4(f)))
     }
 
     fn close(&mut self, socket: Self::UdpSocket) -> Result<(), Self::Error> {
         self.dispatch_events()?;
-        let (sock, op) = self.callbacks.udp_sockets.get(socket).unwrap();
+        let (sock, _op) = self.callbacks.udp_sockets.get(socket).unwrap();
         self.manager
             .send_close(*sock)
             .map_err(|x| StackError::SendCloseFailed(x))?;
