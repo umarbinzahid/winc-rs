@@ -7,18 +7,13 @@ edition = "2021"
 defmt = { version = "0.3.2" }
 log = {version="0.4.17", default-features = false, optional=true }
 
-# this version lacks read() from mutable byte slices
-# genio =  { version = "0.2.1" , default-features = false }
-genio =  { git = "https://github.com/Kixunil/genio.git", rev="32aa022" , default-features = false }
-
 arrayvec =  { version = "0.7.2", default-features = false }
 # thiserror # https://fettblog.eu/rust-enums-wrapping-errors/
 
 crc-any = { version = "2.4.3", default-features = false }
 
-no-std-net = "0.6.0"
-
 embedded-nal = "0.8.0"
+void = { version =  "1", default-features = false }
 
 [dependencies.simple_logger]
 default-features = false
@@ -35,5 +30,5 @@ features = ["std"]
 # optional = true
 
 [features]
-std=["genio/std", "dep:log", "dep:simple_logger"]
+std=["dep:log", "dep:simple_logger"]
 default = ["std"]

@@ -20,7 +20,7 @@ pub enum ClientSocketOp {
 }
 
 pub struct SockHolder<const N: usize, const BASE: usize> {
-    sockets: [Option<(Socket,ClientSocketOp)>; N],
+    sockets: [Option<(Socket, ClientSocketOp)>; N],
 }
 
 impl<const N: usize, const BASE: usize> SockHolder<N, BASE> {
@@ -139,18 +139,18 @@ mod tests {
         let mut socks = SockHolder::<2, 7>::new();
         let handle0 = socks.add(13).unwrap();
         let (s, op) = socks.get(handle0).unwrap();
-        assert_eq!(s.v , 7);
-        assert_eq!(s.s , 13);
+        assert_eq!(s.v, 7);
+        assert_eq!(s.s, 13);
         let handle1 = socks.add(42).unwrap();
         let (s, op) = socks.get(handle1).unwrap();
-        assert_eq!(s.v , 8);
-        assert_eq!(s.s , 42);
+        assert_eq!(s.v, 8);
+        assert_eq!(s.s, 42);
         assert_eq!(socks.add(42), Err(-1));
         socks.remove(handle0);
         let handle2 = socks.add(50).unwrap();
         let (s, op) = socks.get(handle2).unwrap();
-        assert_eq!(s.v , 7);
-        assert_eq!(s.s , 50);
+        assert_eq!(s.v, 7);
+        assert_eq!(s.s, 50);
     }
     #[test]
     fn test_mixmatch() {

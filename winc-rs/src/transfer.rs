@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use genio::{Read, Write};
+pub use crate::readwrite::{Read, Write};
 
 #[cfg(feature = "std")]
 use std::{thread, time};

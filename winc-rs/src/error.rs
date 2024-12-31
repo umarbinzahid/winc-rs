@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use arrayvec::CapacityError;
-use genio::error::{BufferOverflow, ReadExactError};
-
+use crate::readwrite::{BufferOverflow, ReadExactError};
 use crate::StrError;
+use arrayvec::CapacityError;
 
 #[cfg_attr(not(feature = "std"), derive(defmt::Format))]
 #[derive(Debug, PartialEq)]

@@ -20,8 +20,6 @@ use wincwifi::{debug, info};
 use wincwifi::{Ipv4Addr, SocketAddrV4};
 
 #[cfg(feature = "std")]
-use genio::std_impls::GenioIo;
-#[cfg(feature = "std")]
 use std::net::TcpStream;
 
 use simple_logger::init_with_env;
@@ -41,6 +39,25 @@ impl EventListener for Callbacks {
     }
 }
 
+pub struct LocalIoWrapper<T>(T);
+impl<T> LocalIoWrapper<T> {
+    pub fn new(io: T) -> Self {
+        LocalIoWrapper(io)
+    }
+}
+impl<T: std::io::Read> wincwifi::readwrite::Read for LocalIoWrapper<T> {
+    type ReadError = std::io::Error;
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
+        self.0.read(buf)
+    }
+}
+impl<T: std::io::Write> wincwifi::readwrite::Write for LocalIoWrapper<T> {
+    type WriteError = std::io::Error;
+    fn write(&mut self, buf: &[u8]) -> Result<usize, std::io::Error> {
+        self.0.write(buf)
+    }
+}
+
 #[cfg(feature = "std")]
 fn main() -> Result<(), Error> {
     init_with_env().map_err(|_| Error::Failed)?;
@@ -49,10 +66,10 @@ fn main() -> Result<(), Error> {
     let prints = format!("{}:{}", "localhost", 9030);
     let stream_ = TcpStream::connect(prints).unwrap();
 
-    type StreamType<'a> = GenioIo<&'a TcpStream>;
-    let mut stream: StreamType = GenioIo::new(&stream_);
+    type StreamType<'a> = LocalIoWrapper<&'a TcpStream>;
+    let mut stream: StreamType = LocalIoWrapper::new(&stream_);
 
-    let mut manager = Manager::from_xfer(PrefixXfer::new(&mut stream), Callbacks {});
+    let mut manager = Manager::from_xfer(PrefixXfer::new(stream), Callbacks {});
 
     manager.set_crc_state(true);
     //    manager.send_scan(3, 257)?;

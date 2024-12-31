@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::readwrite::{Read, ReadExactError};
 use crate::{Ipv4Addr, SocketAddrV4};
-use genio::{error::ReadExactError, Read};
 
 use super::constants::{AuthType, PingError, SocketError};
 use crate::error::Error;

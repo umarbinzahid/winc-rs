@@ -3,8 +3,8 @@ use defmt::trace;
 
 use hal::gpio::AnyPin;
 
-use wincwifi::transfer::{Read, Write};
 use embedded_hal_02::digital::v2::OutputPin;
+use wincwifi::transfer::{Read, Write};
 
 use super::DelayTrait;
 use super::TransferSpi;
@@ -57,7 +57,6 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Read for SpiStream<CS, Spi
 
 impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Write for SpiStream<CS, Spi, Delay> {
     type WriteError = wincwifi::error::Error;
-    type FlushError = wincwifi::error::Error;
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError> {
         // TODO : Maybe we can do away with the copy and fixed buffer and not panic here
@@ -69,13 +68,5 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Write for SpiStream<CS, Sp
         self.transfer(tmp_slice)
             .map_err(|_| wincwifi::error::Error::WriteError)?;
         Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> Result<(), Self::FlushError> {
-        unreachable!()
-    }
-
-    fn size_hint(&mut self, _bytes: usize) {
-        unreachable!()
     }
 }

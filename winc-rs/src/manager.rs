@@ -812,7 +812,7 @@ impl<X: Xfer, E: EventListener> Manager<X, E> {
         let mut stub = StubListener {};
         self.dispatch_events_new::<StubListener>(&mut stub)
     }
-    pub fn dispatch_events_new<T:EventListener>(&mut self, listener: &mut T) -> Result<(), Error> {
+    pub fn dispatch_events_new<T: EventListener>(&mut self, listener: &mut T) -> Result<(), Error> {
         let res = self.is_interrupt_pending()?;
         if !res.0 {
             return Ok(());
@@ -963,7 +963,6 @@ impl<X: Xfer, E: EventListener> Manager<X, E> {
             _ => panic!("Unexpected hif"),
         }
         Ok(())
-      
     }
 
     // #endregion write

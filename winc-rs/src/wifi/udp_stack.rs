@@ -26,10 +26,10 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
     fn connect(
         &mut self,
         socket: &mut Self::UdpSocket,
-        remote: no_std_net::SocketAddr,
+        remote: core::net::SocketAddr,
     ) -> Result<(), Self::Error> {
         let mgr = self.manager.as_mut().ok_or(UdpClientError::NoManager)?;
-        let (sh,op) = self
+        let (sh, op) = self
             .udp_sockets
             .get(*socket)
             .ok_or(UdpClientError::SocketError)?;
@@ -37,7 +37,7 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
         // ensure network is connected
         // maybe bind ?
         match remote {
-            no_std_net::SocketAddr::V4(addr) => {
+            core::net::SocketAddr::V4(addr) => {
                 mgr.send_socket_connect(*sh, addr)
                     .map_err(|_| UdpClientError::SocketError)?;
                 // spin here until connected or timeout
@@ -50,10 +50,10 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
         &mut self,
         socket: &mut Self::UdpSocket,
         _buffer: &mut [u8],
-    ) -> embedded_nal::nb::Result<(usize, no_std_net::SocketAddr), Self::Error> {
+    ) -> embedded_nal::nb::Result<(usize, core::net::SocketAddr), Self::Error> {
         self.spin().ok();
         let mgr = self.manager.as_mut().ok_or(UdpClientError::NoManager)?;
-        let (sh,op) = self
+        let (sh, op) = self
             .udp_sockets
             .get(*socket)
             .ok_or(UdpClientError::SocketError)?;
@@ -79,8 +79,8 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
 mod tests {
     use super::*;
     use crate::transfer::PrefixXfer;
+    use core::net::{Ipv4Addr, Ipv6Addr};
     use embedded_nal::UdpClientStack;
-    use no_std_net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
     fn test_udp_stack() {
@@ -88,11 +88,11 @@ mod tests {
         let mut client = WincClient::from_xfer(f.as_mut_slice());
 
         let mut socket = client.socket().unwrap();
-        let addr = no_std_net::SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 80);
+        let addr = core::net::SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 80);
 
         <WincClient<_> as UdpClientStack>::connect(&mut client, &mut socket, addr.into()).unwrap();
 
-        let addr6 = no_std_net::SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 80, 0, 0);
+        let addr6 = core::net::SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 80, 0, 0);
         let res =
             <WincClient<_> as UdpClientStack>::connect(&mut client, &mut socket, addr6.into());
         assert_eq!(res, Err(UdpClientError::IPV6NotSupported));

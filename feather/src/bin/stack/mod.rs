@@ -33,7 +33,7 @@ impl SocketCallbacks {
             recv_buffer: [0; wincwifi::manager::SOCKET_BUFFER_MAX_LENGTH],
             recv_len: 0,
             last_error: SocketError::NoError,
-            last_recv_addr: None
+            last_recv_addr: None,
         }
     }
     fn resolve(&mut self, socket: Socket) -> Option<&mut (Socket, ClientSocketOp)> {
@@ -301,7 +301,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> WincClient<'a, X, E> {
             recv_timeout: Self::RECV_TIMEOUT,
             poll_loop_delay: Self::POLL_LOOP_DELAY,
             next_session_id: 0,
-            last_send_addr: None
+            last_send_addr: None,
         }
     }
     pub fn get_next_session_id(&mut self) -> u16 {
@@ -314,13 +314,13 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> WincClient<'a, X, E> {
             .dispatch_events_new(&mut self.callbacks)
             .map_err(|some_err| StackError::DispatchError(some_err))
     }
-    // What could possible go wrong in this wait ? Should this be nb::block! ? 
+    // What could possible go wrong in this wait ? Should this be nb::block! ?
     fn wait_for_op_ack(
         &mut self,
         handle: Handle,
         expect_op: ClientSocketOp,
         timeout: u32,
-        tcp: bool // todo: this is ugly
+        tcp: bool, // todo: this is ugly
     ) -> Result<usize, StackError> {
         self.dispatch_events()?;
         let mut timeout = timeout as i32;
@@ -500,7 +500,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         defmt::info!("<> Sending socket udp send_send to {:?}", sock);
         if let Some(addr) = self.last_send_addr {
             self.manager
-                .send_sendto(*sock, addr,buffer)
+                .send_sendto(*sock, addr, buffer)
                 .map_err(|x| StackError::SendSendFailed(x))?;
         } else {
             return Err(StackError::Weirdness.into());
@@ -530,10 +530,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         }
         // todo: propagate back the actual address
         let f = self.last_send_addr.unwrap();
-        Ok((
-            recv_len,
-            embedded_nal::SocketAddr::V4(f),
-        ))
+        Ok((recv_len, embedded_nal::SocketAddr::V4(f)))
     }
 
     fn close(&mut self, socket: Self::UdpSocket) -> Result<(), Self::Error> {

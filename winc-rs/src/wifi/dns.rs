@@ -18,7 +18,7 @@ impl<X: Xfer> Dns for WincClient<X> {
 
     fn get_host_by_address(
         &self,
-        _addr: no_std_net::IpAddr,
+        _addr: core::net::IpAddr,
         _result: &mut [u8],
     ) -> Result<usize, <Self as Dns>::Error> {
         todo!()

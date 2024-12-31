@@ -1,6 +1,5 @@
 use super::hal;
 
-
 use hal::prelude::*;
 
 use core::time::Duration;
@@ -13,7 +12,7 @@ use delay_trait::DelayTrait;
 pub use spi_stream::SpiStream;
 pub use transfer_spi::TransferSpi;
 
-use cortex_m_systick_countdown::{PollingSysTick,MillisCountDown};
+use cortex_m_systick_countdown::{MillisCountDown, PollingSysTick};
 
 pub fn create_delay_closure<'a>(
     delay: &'a mut MillisCountDown<'a, PollingSysTick>,

@@ -1,6 +1,9 @@
 use cortex_m_systick_countdown::MillisCountDown;
 use embedded_nal::{TcpClientStack, UdpClientStack};
-use feather::{init::init, shared::{create_delay_closure, SpiStream}};
+use feather::{
+    init::init,
+    shared::{create_delay_closure, SpiStream},
+};
 use wincwifi::manager::{AuthType, EventListener, Manager};
 
 use super::bsp::hal::prelude::*;
@@ -8,19 +11,25 @@ use wincwifi::Handle;
 
 use crate::{stack::WincClient, DEFAULT_TEST_PASSWORD, DEFAULT_TEST_SSID};
 
-pub type MyTcpClientStack<'a> = &'a mut dyn TcpClientStack<TcpSocket = Handle, Error = crate::stack::StackError>;
+pub type MyTcpClientStack<'a> =
+    &'a mut dyn TcpClientStack<TcpSocket = Handle, Error = crate::stack::StackError>;
 
-pub type MyUdpClientStack<'a> = &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = crate::stack::StackError>;
+pub type MyUdpClientStack<'a> =
+    &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = crate::stack::StackError>;
 
 pub struct Callbacks {
-    connected: bool
+    connected: bool,
 }
 impl EventListener for Callbacks {
     fn on_dhcp(&mut self, conf: wincwifi::manager::IPConf) {
         defmt::info!("Network connected: IP config: {}", conf);
         self.connected = true;
     }
-    fn on_connstate_changed(&mut self, state: wincwifi::manager::WifiConnState, err: wincwifi::manager::WifiConnError) {
+    fn on_connstate_changed(
+        &mut self,
+        state: wincwifi::manager::WifiConnState,
+        err: wincwifi::manager::WifiConnError,
+    ) {
         defmt::info!("Connection state changed: {:?} {:?}", state, err);
     }
     fn on_system_time(&mut self, year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) {
@@ -36,7 +45,9 @@ impl EventListener for Callbacks {
     }
 }
 
-pub fn connect_and_run(message: &str, tcp: bool,
+pub fn connect_and_run(
+    message: &str,
+    tcp: bool,
     execute_tcp: impl FnOnce(MyTcpClientStack) -> Result<(), crate::stack::StackError>,
     execute_udp: impl FnOnce(MyUdpClientStack) -> Result<(), crate::stack::StackError>,
 ) -> Result<(), crate::stack::StackError> {

@@ -44,6 +44,7 @@ pub use log::{debug, error, info, trace, warn};
 mod client;
 pub mod error;
 pub mod manager;
+pub mod readwrite;
 pub mod socket;
 pub mod transfer;
 
@@ -51,10 +52,10 @@ pub mod transfer;
 use core::fmt::Write;
 pub use socket::Socket;
 
-pub use no_std_net::{Ipv4Addr, SocketAddrV4};
+pub use core::net::{Ipv4Addr, SocketAddrV4};
 
-pub use client::{Handle, WincClient, ClientSocketOp};
 pub use client::SockHolder;
+pub use client::{ClientSocketOp, Handle, WincClient};
 
 pub mod wifi;
 

@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use genio::{error::BufferOverflow, Write};
+use crate::readwrite::BufferOverflow;
+use crate::readwrite::Write;
 
 use crate::{Ipv4Addr, Socket, SocketAddrV4};
 
