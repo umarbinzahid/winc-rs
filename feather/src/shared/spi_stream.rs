@@ -3,7 +3,7 @@ use defmt::trace;
 
 use hal::gpio::AnyPin;
 
-use embedded_hal_02::digital::v2::OutputPin;
+use hal::ehal::digital::OutputPin;
 use wincwifi::transfer::{Read, Write};
 
 use super::DelayTrait;
@@ -24,7 +24,7 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> SpiStream<CS, Spi, Delay> 
             delay,
         }
     }
-    fn transfer(&mut self, buf: &mut [u8]) -> Result<(), hal::sercom::spi::Error> {
+    fn transfer(&mut self, buf: &mut [u8]) -> Result<(), Spi::Error> {
         const WAIT_MS: u32 = 1;
         if let Some(cs) = take(&mut self.cs) {
             let mut pin = cs.into().into_push_pull_output();
@@ -32,7 +32,7 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> SpiStream<CS, Spi, Delay> 
 
             trace!("send: {=[u8]:#x}", buf);
             (self.delay)(WAIT_MS);
-            self.spi.transfer(buf)?;
+            self.spi.transfer_in_place(buf)?;
             (self.delay)(WAIT_MS);
             trace!("recv: {=[u8]:#x}", buf);
 
