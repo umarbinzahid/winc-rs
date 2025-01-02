@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use wincwifi::error::Error;
+use wincwifi::errors::Error;
 use wincwifi::manager::{AuthType, EventListener, Manager};
 use wincwifi::transfer::PrefixXfer;
 use wincwifi::Socket;
-use wincwifi::{debug, info};
 use wincwifi::{Ipv4Addr, SocketAddrV4};
+
+#[cfg(feature = "defmt")]
+pub(crate) use defmt::{debug, info};
+#[cfg(feature = "std")]
+pub(crate) use log::{debug, info};
 
 #[cfg(feature = "std")]
 use std::net::TcpStream;
@@ -149,9 +153,11 @@ fn main() -> Result<(), Error> {
 
 // make this into defmt threaded receiver
 
+#[cfg(feature = "defmt")]
 #[defmt::global_logger]
 struct Logger;
 
+#[cfg(feature = "defmt")]
 unsafe impl defmt::Logger for Logger {
     fn acquire() {}
     unsafe fn flush() {}
@@ -159,8 +165,10 @@ unsafe impl defmt::Logger for Logger {
     unsafe fn write(_bytes: &[u8]) {}
 }
 
+#[cfg(feature = "defmt")]
 defmt::timestamp!("{=u32}", 0);
 
+#[cfg(feature = "defmt")]
 #[defmt::panic_handler]
 fn panic() -> ! {
     core::panic!("panic via `defmt::panic!`")

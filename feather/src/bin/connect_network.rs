@@ -31,7 +31,7 @@ impl EventListener for Callbacks {
     }
 }
 
-fn program() -> Result<(), wincwifi::error::Error> {
+fn program() -> Result<(), wincwifi::errors::Error> {
     if let Ok((delay_tick, mut red_led, cs, spi)) = init() {
         defmt::println!("Hello, tcp_connect with shared init!");
 
@@ -54,6 +54,11 @@ fn program() -> Result<(), wincwifi::error::Error> {
 
         let ssid = option_env!("TEST_SSID").unwrap_or(DEFAULT_TEST_SSID);
         let password = option_env!("TEST_PASSWORD").unwrap_or(DEFAULT_TEST_PASSWORD);
+        defmt::info!(
+            "Connecting to network: {} with password: {}",
+            ssid,
+            password
+        );
 
         manager.send_connect(AuthType::WpaPSK, ssid, password, 0xFF, false)?;
 

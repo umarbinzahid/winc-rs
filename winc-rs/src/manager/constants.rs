@@ -38,7 +38,7 @@ impl From<Regs> for u32 {
     }
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub enum WifiConnError {
     Unhandled,
@@ -68,7 +68,7 @@ impl core::fmt::Display for WifiConnError {
     }
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default)]
 pub enum AuthType {
     #[default]
@@ -97,7 +97,7 @@ impl From<AuthType> for u8 {
     }
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default)]
 pub enum WifiConnState {
     #[default]
@@ -166,7 +166,7 @@ pub enum WifiRequest {
     Doze = 0x3A,
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default)]
 pub enum WifiResponse {
     #[default]
@@ -205,7 +205,7 @@ impl From<u8> for WifiResponse {
     }
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub enum IpCode {
     #[default]
@@ -244,7 +244,7 @@ impl From<u8> for IpCode {
     }
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub enum PingError {
     Unhandled = -1000,
@@ -266,7 +266,7 @@ impl From<u8> for PingError {
 }
 
 #[allow(dead_code)] // Todo: once complete maybe can remove
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub enum SocketError {
     Unhandled = -1000,

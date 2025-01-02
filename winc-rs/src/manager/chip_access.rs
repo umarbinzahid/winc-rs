@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::error::Error;
+use crate::errors::Error;
 
 use crate::transfer::*;
 
 use crc_any::CRC;
 
+use crate::HexWrap;
 use crate::{trace, warn};
 
 fn find_first_neq_index<T: PartialEq>(a1: &[T], a2: &[T]) -> Option<usize> {
@@ -36,26 +37,6 @@ fn crc16(input: &[u8]) -> u16 {
     crc.digest(&[0x99, 0xc0]); // reset crc to 0xFFFF
     crc.digest(input);
     crc.get_crc() as u16
-}
-
-//#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
-struct HexWrap<'a> {
-    v: &'a [u8],
-}
-impl core::fmt::LowerHex for HexWrap<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        for elem in self.v {
-            write!(f, " {:02x}", elem)?;
-        }
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "std"))]
-impl<'a> defmt::Format for HexWrap<'a> {
-    fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, " bytes: {=[u8]:#x}", self.v)
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -315,7 +296,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04,
         ];
         let mut writer = writebuf.as_mut_slice();
-        let mut chip = ChipAccess::new(PrefixXfer::new(&mut writer));
+        let mut chip = ChipAccess::new(PrefixXfer::new(writer));
         chip.crc = false;
         let res = chip.single_reg_read(0x10).unwrap();
         assert_eq!(res, 0x04030201);
@@ -337,7 +318,7 @@ mod tests {
         ];
         let mut writer = writebuf.as_mut_slice();
 
-        let mut chip = ChipAccess::new(PrefixXfer::new(&mut writer));
+        let mut chip = ChipAccess::new(PrefixXfer::new(writer));
         let res = chip.single_reg_read(0x10).unwrap();
         assert_eq!(res, 0x04030201);
         assert_eq!(
@@ -353,7 +334,7 @@ mod tests {
     fn test_read_chip_simple() {
         let mut writebuf = [0xFF, 0xFF, 0xFF, 0xFF, 0xCA, 0x0, 0xF0, 1, 2, 3, 4];
         let mut writer = writebuf.as_mut_slice();
-        let mut chip = ChipAccess::new(&mut writer);
+        let mut chip = ChipAccess::new(writer);
         chip.crc = false;
         let res = chip.single_reg_read(0x10);
         assert_eq!(res, Ok(0x04030201));
@@ -365,7 +346,7 @@ mod tests {
             /*data status*/ 0xF3, /*data */ 1, 2, 3, 4, /*2 byte crc*/ 42, 0,
         ];
         let mut writer = writebuf.as_mut_slice();
-        let mut chip = ChipAccess::new(&mut writer);
+        let mut chip = ChipAccess::new(writer);
         let res = chip.single_reg_read(0x10);
         assert_eq!(res, Ok(0x04030201));
     }

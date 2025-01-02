@@ -16,7 +16,7 @@ use crate::readwrite::{BufferOverflow, ReadExactError};
 use crate::StrError;
 use arrayvec::CapacityError;
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Failed,

@@ -47,7 +47,7 @@ where
         match addr {
             SocketAddr::V4(sa) => {
                 defmt::println!(
-                    "-----Response received {}----- {:?}",
+                    "-----Response received from {}----- {:?}",
                     resplen,
                     Ipv4AddrFormatWrapper::new(sa.ip())
                 );

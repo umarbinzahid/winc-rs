@@ -24,6 +24,7 @@ impl<'a> Ipv4AddrFormatWrapper<'a> {
     }
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for Ipv4AddrFormatWrapper<'_> {
     fn format(&self, f: defmt::Formatter) {
         let ip: u32 = (*self.ip).into();

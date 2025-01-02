@@ -9,6 +9,7 @@ use wincwifi::Socket;
 use embedded_nal::nb;
 use wincwifi::SockHolder;
 
+use wincwifi::wifi::errors;
 use wincwifi::{ClientSocketOp, Handle};
 
 struct SocketCallbacks {
@@ -48,7 +49,7 @@ impl SocketCallbacks {
 
 impl EventListener for SocketCallbacks {
     fn on_dhcp(&mut self, conf: wincwifi::manager::IPConf) {
-        defmt::info!("on_dhcp: IP config: {}", conf);
+        defmt::debug!("on_dhcp: IP config: {}", conf);
     }
     fn on_connect(&mut self, socket: Socket, err: SocketError) {
         defmt::debug!("on_connect: socket {:?}", socket);
@@ -212,7 +213,7 @@ impl EventListener for SocketCallbacks {
         }
     }
     fn on_system_time(&mut self, year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) {
-        defmt::info!(
+        defmt::debug!(
             "on_system_time: {}-{:02}-{:02} {:02}:{:02}:{:02}",
             year,
             month,
@@ -226,21 +227,21 @@ impl EventListener for SocketCallbacks {
 
 #[derive(Debug, defmt::Format)]
 pub enum StackError {
-    MyWouldBlock,
+    WouldBlock,
     GeneralTimeout,
     ConnectTimeout,
     RecvTimeout,
     SendTimeout,
-    AddingASocketFailed(i32),
-    DispatchError(wincwifi::error::Error),
-    ConnectSendFailed(wincwifi::error::Error),
-    ReceiveFailed(wincwifi::error::Error),
-    SendSendFailed(wincwifi::error::Error),
-    SendCloseFailed(wincwifi::error::Error),
-    WincWifiFail(wincwifi::error::Error),
+    OutOfSockets,
+    CloseFailed,
+    Unexpected,
+    DispatchError(wincwifi::errors::Error),
+    ConnectSendFailed(wincwifi::errors::Error),
+    ReceiveFailed(wincwifi::errors::Error),
+    SendSendFailed(wincwifi::errors::Error),
+    SendCloseFailed(wincwifi::errors::Error),
+    WincWifiFail(wincwifi::errors::Error),
     OpFailed(SocketError),
-    Weirdness,
-    // todo: implement TcpError::PipeClosed correctly
 }
 
 impl From<Infallible> for StackError {
@@ -255,8 +256,8 @@ impl From<SocketError> for StackError {
     }
 }
 
-impl From<wincwifi::error::Error> for StackError {
-    fn from(inner: wincwifi::error::Error) -> Self {
+impl From<wincwifi::errors::Error> for StackError {
+    fn from(inner: wincwifi::errors::Error) -> Self {
         Self::WincWifiFail(inner)
     }
 }
@@ -270,7 +271,7 @@ impl embedded_nal::TcpError for StackError {
 impl From<nb::Error<StackError>> for StackError {
     fn from(inner: nb::Error<StackError>) -> Self {
         match inner {
-            nb::Error::WouldBlock => StackError::MyWouldBlock,
+            nb::Error::WouldBlock => StackError::WouldBlock,
             nb::Error::Other(e) => e,
         }
     }
@@ -313,7 +314,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> WincClient<'a, X, E> {
             .dispatch_events_new(&mut self.callbacks)
             .map_err(|some_err| StackError::DispatchError(some_err))
     }
-    // What could possible go wrong in this wait ? Should this be nb::block! ?
+    // What could possibly go wrong in this wait ?
     fn wait_for_op_ack(
         &mut self,
         handle: Handle,
@@ -369,7 +370,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
             .callbacks
             .tcp_sockets
             .add(s)
-            .map_err(|x| StackError::AddingASocketFailed(x))?;
+            .ok_or(StackError::OutOfSockets)?;
         Ok(handle)
     }
     fn connect(
@@ -383,7 +384,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
                 let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
                 *op = ClientSocketOp::Connect;
                 let op = *op;
-                defmt::info!("<> Sending send_socket_connect to {:?}", sock);
+                defmt::debug!("<> Sending send_socket_connect to {:?}", sock);
                 self.manager
                     .send_socket_connect(*sock, addr)
                     .map_err(|x| StackError::ConnectSendFailed(x))?;
@@ -402,7 +403,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
         *op = ClientSocketOp::Send;
         let op = *op;
-        defmt::info!("<> Sending socket send_send to {:?}", sock);
+        defmt::debug!("<> Sending socket send_send to {:?}", sock);
         self.manager
             .send_send(*sock, data)
             .map_err(|x| StackError::SendSendFailed(x))?;
@@ -419,7 +420,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         *op = ClientSocketOp::Recv;
         let op = *op;
         let timeout = Self::RECV_TIMEOUT;
-        defmt::info!("<> Sending socket send_recv to {:?}", sock);
+        defmt::debug!("<> Sending socket send_recv to {:?}", sock);
         self.manager
             .send_recv(*sock, timeout as u32)
             .map_err(|x| StackError::ReceiveFailed(x))?;
@@ -439,7 +440,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         self.callbacks
             .tcp_sockets
             .get(socket)
-            .ok_or(StackError::Weirdness)?;
+            .ok_or(StackError::CloseFailed)?;
         self.callbacks.tcp_sockets.remove(socket);
         Ok(())
     }
@@ -451,15 +452,15 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
     type Error = StackError;
 
     fn socket(&mut self) -> Result<Self::UdpSocket, Self::Error> {
-        defmt::info!("<> Calling new UDP socket");
+        defmt::debug!("<> Calling new UDP socket");
         self.dispatch_events()?;
         let s = self.get_next_session_id();
         let handle = self
             .callbacks
             .udp_sockets
             .add(s)
-            .map_err(|x| StackError::AddingASocketFailed(x))?;
-        defmt::info!("<> Got handle {:?} ", handle.0);
+            .ok_or(StackError::OutOfSockets)?;
+        defmt::debug!("<> Got handle {:?} ", handle.0);
         Ok(handle)
     }
 
@@ -471,19 +472,9 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         self.dispatch_events()?;
         match remote {
             core::net::SocketAddr::V4(addr) => {
-                defmt::info!("<> Connect handle is {:?}", socket.0);
+                defmt::debug!("<> Connect handle is {:?}", socket.0);
                 let (_sock, _op) = self.callbacks.udp_sockets.get(*socket).unwrap();
                 self.last_send_addr = Some(addr);
-                /*
-                *op = ClientSocketOp::Connect;
-                let op = *op;
-                defmt::info!("<> Sending udp send_socket_connect to {:?}", sock);
-                self.manager
-                    .send_socket_connect(*sock, addr)
-                    .map_err(|x| StackError::ConnectSendFailed(x))?;
-                defmt::info!("<> calling udp send_socket_connect opack {:?}", sock);
-                self.wait_for_op_ack(*socket, op, Self::CONNECT_TIMEOUT, false)?;
-                 */
             }
             core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
         }
@@ -492,17 +483,17 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
 
     fn send(&mut self, socket: &mut Self::UdpSocket, buffer: &[u8]) -> nb::Result<(), Self::Error> {
         self.dispatch_events()?;
-        defmt::info!("<> in udp send {:?}", socket.0);
+        defmt::debug!("<> in udp send {:?}", socket.0);
         let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
         *op = ClientSocketOp::SendTo;
         let op = *op;
-        defmt::info!("<> Sending socket udp send_send to {:?}", sock);
+        defmt::debug!("<> Sending socket udp send_send to {:?}", sock);
         if let Some(addr) = self.last_send_addr {
             self.manager
                 .send_sendto(*sock, addr, buffer)
                 .map_err(|x| StackError::SendSendFailed(x))?;
         } else {
-            return Err(StackError::Weirdness.into());
+            return Err(StackError::Unexpected.into());
         }
         self.wait_for_op_ack(*socket, op, Self::SEND_TIMEOUT, false)?;
         Ok(())
@@ -518,7 +509,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         *op = ClientSocketOp::RecvFrom;
         let op = *op;
         let timeout = Self::RECV_TIMEOUT;
-        defmt::info!("<> Sending udp socket send_recv to {:?}", sock);
+        defmt::debug!("<> Sending udp socket send_recv to {:?}", sock);
         self.manager
             .send_recvfrom(*sock, timeout)
             .map_err(|x| StackError::ReceiveFailed(x))?;
@@ -527,7 +518,6 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
             let dest_slice = &mut buffer[..recv_len];
             dest_slice.copy_from_slice(&self.callbacks.recv_buffer[..recv_len]);
         }
-        // todo: propagate back the actual address
         let f = self.last_send_addr.unwrap();
         Ok((recv_len, core::net::SocketAddr::V4(f)))
     }
@@ -541,7 +531,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         self.callbacks
             .udp_sockets
             .get(socket)
-            .ok_or(StackError::Weirdness)?;
+            .ok_or(StackError::CloseFailed)?;
         self.callbacks.udp_sockets.remove(socket);
         Ok(())
     }

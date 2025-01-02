@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-defmt = { version = "0.3.2" }
 log = {version="0.4.17", default-features = false, optional=true }
 
 # CRC calcs for the over-the-wire firmware
@@ -19,20 +18,13 @@ arrayvec =  { version = "0.7.2", default-features = false }
 # TODO: Remove
 void = { version =  "1", default-features = false }
 
-[dependencies.simple_logger]
-default-features = false
-version="4.0.0"
-optional = true
+simple_logger = { version = "4.0.0", default-features = false, optional=true }
+defmt = { version = "0.3.2", default-features = false, optional=true }
 
 [dev-dependencies]
 test-log = "0.2.11"
 
-[dev-dependencies.void]
-version = "1"
-default-features = false
-features = ["std"]
-# optional = true
-
 [features]
 std=["dep:log", "dep:simple_logger"]
+defmt = ["dep:defmt"]
 default = ["std"]

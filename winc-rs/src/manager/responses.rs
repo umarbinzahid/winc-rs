@@ -16,19 +16,21 @@ use crate::readwrite::{Read, ReadExactError};
 use crate::{Ipv4Addr, SocketAddrV4};
 
 use super::constants::{AuthType, PingError, SocketError};
-use crate::error::Error;
+use crate::errors::Error;
 type ErrType<'a> = ReadExactError<<&'a [u8] as Read>::ReadError>;
 
 use arrayvec::ArrayString;
 
+use crate::error;
+use crate::HexWrap;
 use crate::StrError;
 use core::str::FromStr;
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 use crate::Ipv4AddrFormatWrapper;
 
-#[cfg(not(feature = "std"))]
-use crate::{display_to_defmt, error};
+#[cfg(feature = "defmt")]
+use crate::display_to_defmt;
 
 const AF_INET: u16 = 2;
 
@@ -83,7 +85,7 @@ fn from_c_byte_slice<const N: usize>(input: &[u8]) -> Result<ArrayString<N>, Str
     Ok(ret)
 }
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub struct Revision {
     pub major: u8,
@@ -136,7 +138,7 @@ impl From<[u8; 40]> for FirmwareInfo {
     }
 }
 
-//#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+//#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub struct ConnectionInfo {
     pub ssid: Ssid,
@@ -146,7 +148,7 @@ pub struct ConnectionInfo {
     pub rssi: i8,
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 impl defmt::Format for ConnectionInfo {
     fn format(&self, f: defmt::Formatter) {
         display_to_defmt(f, self)
@@ -224,7 +226,7 @@ impl core::fmt::Display for ScanResult {
     }
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 impl defmt::Format for ScanResult {
     fn format(&self, f: defmt::Formatter) {
         display_to_defmt(f, self)
@@ -253,8 +255,7 @@ pub fn read_accept_reply(
 ) -> Result<(SocketAddrV4, Socket, Socket, u16), Error> {
     let reader = &mut response;
     if read16(reader)? != AF_INET {
-        #[cfg(not(feature = "std"))]
-        error!("Error response: {:x}", response);
+        error!("Error response: {:x}", HexWrap { v: &response });
         return Err(Error::UnexpectedAddressFamily);
     }
     let port = read16be(reader)?;
@@ -286,7 +287,7 @@ impl core::fmt::Display for IPConf {
     }
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 impl defmt::Format for IPConf {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
@@ -335,8 +336,7 @@ pub fn read_send_reply<'a>(mut response: &[u8]) -> Result<(Socket, i16), ErrType
 pub fn read_recv_reply(mut response: &[u8]) -> Result<(Socket, SocketAddrV4, i16, u16), Error> {
     let reader = &mut response;
     if read16(reader)? != AF_INET {
-        #[cfg(not(feature = "std"))]
-        error!("Error response: {:x}", response);
+        error!("Error response: {:x}", HexWrap::new(response));
         return Err(Error::UnexpectedAddressFamily);
     }
     let port = read16be(reader)?;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::error::Error;
+use crate::errors::Error;
 use core::fmt::Debug;
 
 use crate::transfer::Xfer;
@@ -39,7 +39,7 @@ use crate::{Ipv4Addr, SocketAddrV4};
 #[cfg(not(feature = "std"))]
 use crate::nonstd::Ipv4AddrFormatWrapper;
 
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Default)]
 enum HifGroup {
     #[default]

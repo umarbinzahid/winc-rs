@@ -45,6 +45,7 @@ unsafe fn HardFault(_frame: &cortex_m_rt::ExceptionFrame) -> ! {
 // once within a crate. the module can be in any file but there can only be at most
 // one `#[tests]` module in this library crate
 #[cfg(test)]
+#[cfg(feature = "defmt")]
 #[defmt_test::tests]
 mod unit_tests {
     use defmt::assert;

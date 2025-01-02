@@ -45,18 +45,18 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> SpiStream<CS, Spi, Delay> 
 }
 
 impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Read for SpiStream<CS, Spi, Delay> {
-    type ReadError = wincwifi::error::Error;
+    type ReadError = wincwifi::errors::Error;
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::ReadError> {
         self.transfer(buf)
-            .map_err(|_| wincwifi::error::Error::ReadError)?;
+            .map_err(|_| wincwifi::errors::Error::ReadError)?;
         trace!("Stream: read {} {=[u8]:#x} bytes", buf.len(), buf);
         Ok(buf.len())
     }
 }
 
 impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Write for SpiStream<CS, Spi, Delay> {
-    type WriteError = wincwifi::error::Error;
+    type WriteError = wincwifi::errors::Error;
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError> {
         // TODO : Maybe we can do away with the copy and fixed buffer and not panic here
@@ -66,7 +66,7 @@ impl<CS: AnyPin, Spi: TransferSpi, Delay: DelayTrait> Write for SpiStream<CS, Sp
         tmp_slice.clone_from_slice(buf);
         trace!("Stream: writing {=[u8]:#x} bytes", buf);
         self.transfer(tmp_slice)
-            .map_err(|_| wincwifi::error::Error::WriteError)?;
+            .map_err(|_| wincwifi::errors::Error::WriteError)?;
         Ok(buf.len())
     }
 }

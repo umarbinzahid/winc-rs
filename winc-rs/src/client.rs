@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 pub struct Handle(pub u8);
 
 #[derive(PartialEq, Clone, Copy)]
-#[cfg_attr(not(feature = "std"), derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ClientSocketOp {
     None,
     New,
@@ -38,18 +38,18 @@ impl<const N: usize, const BASE: usize> SockHolder<N, BASE> {
     fn len(&self) -> usize {
         self.sockets.iter().filter(|a| a.is_some()).count()
     }
-    pub fn add(&mut self, session_id: u16) -> Result<Handle, i32> {
+    pub fn add(&mut self, session_id: u16) -> Option<Handle> {
         if self.len() >= N {
-            return Err(-1);
+            return None;
         }
         for (index, element) in self.sockets.iter_mut().enumerate() {
             if element.is_none() {
                 let ns = Socket::new((BASE + index) as u8, session_id);
                 element.replace((ns, ClientSocketOp::New));
-                return Ok(Handle(index as u8));
+                return Some(Handle(index as u8));
             }
         }
-        Err(-1)
+        None
     }
     pub fn remove(&mut self, handle: Handle) {
         self.sockets[handle.0 as usize] = None;
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(fa_client.udp_sockets.add(2).unwrap().0, 0);
         assert_eq!(fa_client.udp_sockets.add(3).unwrap().0, 1);
         assert_eq!(fa_client.udp_sockets.add(4).unwrap().0, 2);
-        assert_eq!(fa_client.udp_sockets.add(5), Err(-1));
+        assert_eq!(fa_client.udp_sockets.add(5), None);
         assert_eq!(fa_client._tcp_sockets.len(), 2);
         assert_eq!(fa_client.udp_sockets.len(), 3);
     }
@@ -151,7 +151,7 @@ mod tests {
         let (s, op) = socks.get(handle1).unwrap();
         assert_eq!(s.v, 8);
         assert_eq!(s.s, 42);
-        assert_eq!(socks.add(42), Err(-1));
+        assert_eq!(socks.add(42), None);
         socks.remove(handle0);
         let handle2 = socks.add(50).unwrap();
         let (s, op) = socks.get(handle2).unwrap();

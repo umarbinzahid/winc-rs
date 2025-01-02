@@ -17,7 +17,7 @@ pub use crate::readwrite::{Read, Write};
 #[cfg(feature = "std")]
 use std::{thread, time};
 
-use crate::error::Error;
+use crate::errors::Error;
 use arrayvec::{ArrayVec, CapacityError};
 
 type TmpBuffer = ArrayVec<u8, 256>;

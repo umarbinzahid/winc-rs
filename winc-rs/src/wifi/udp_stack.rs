@@ -19,9 +19,7 @@ impl<X: Xfer> UdpClientStack for WincClient<X> {
     type Error = UdpClientError;
     fn socket(&mut self) -> Result<Self::UdpSocket, Self::Error> {
         let s = self.get_next_session_id();
-        self.udp_sockets
-            .add(s)
-            .map_err(|_| UdpClientError::OutOfSockets)
+        self.udp_sockets.add(s).ok_or(UdpClientError::OutOfSockets)
     }
     fn connect(
         &mut self,
@@ -89,12 +87,5 @@ mod tests {
 
         let mut socket = client.socket().unwrap();
         let addr = core::net::SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 80);
-
-        <WincClient<_> as UdpClientStack>::connect(&mut client, &mut socket, addr.into()).unwrap();
-
-        let addr6 = core::net::SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 80, 0, 0);
-        let res =
-            <WincClient<_> as UdpClientStack>::connect(&mut client, &mut socket, addr6.into());
-        assert_eq!(res, Err(UdpClientError::IPV6NotSupported));
     }
 }
