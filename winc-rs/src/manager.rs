@@ -36,7 +36,7 @@ pub use responses::{ConnectionInfo, ScanResult};
 
 use crate::{Ipv4Addr, SocketAddrV4};
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 use crate::nonstd::Ipv4AddrFormatWrapper;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -96,7 +96,7 @@ pub trait EventListener {
     fn on_resolve(&mut self, ip: Ipv4Addr, host: &str) {
         #[cfg(feature = "std")]
         debug!("Got resolve ip:{} host:{}", ip, host);
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!(
             "Got resolve ip:{} host:{}",
             Ipv4AddrFormatWrapper::new(&ip),
@@ -130,7 +130,7 @@ pub trait EventListener {
     fn on_ip_conflict(&mut self, ip: Ipv4Addr) {
         #[cfg(feature = "std")]
         debug!("on_ip_conflict: {}", ip);
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!("on_ip_conflict: {}", Ipv4AddrFormatWrapper::new(&ip));
     }
     fn on_ping(
@@ -147,7 +147,7 @@ pub trait EventListener {
             "on_ping: ip:{} token:{} rtt:{} succeeded:{} failed:{} error:{:?}",
             ip, token, rtt, num_successful, num_failed, error
         );
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!(
             "on_ping: ip:{} token:{} rtt:{} succeeded:{} failed:{} error:{:?}",
             Ipv4AddrFormatWrapper::new(&ip),
@@ -177,7 +177,7 @@ pub trait EventListener {
             "on_accept: sockaddr:{} listen_socket:{:?} accept_socket:{:?} data_offset:{}",
             address, listen_socket, accepted_socket, data_offset
         );
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!(
             "on_accept: sockaddr ip:{} port:{} listen_socket:{:?} accept_socket:{:?} data_offset:{}",
             Ipv4AddrFormatWrapper::new(address.ip()),  address.port(),
@@ -202,7 +202,7 @@ pub trait EventListener {
             data.len(),
             err
         );
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!(
             "on_recv: socket:{:?} ip:{} port:{} data len:{} err:{:?}",
             socket,
@@ -227,7 +227,7 @@ pub trait EventListener {
             data.len(),
             err
         );
-        #[cfg(not(feature = "std"))]
+        #[cfg(feature = "defmt")]
         debug!(
             "on_recvfrom: socket:{:?} ip:{} port:{} data len:{} err:{:?}",
             socket,

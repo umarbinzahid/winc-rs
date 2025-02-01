@@ -19,11 +19,11 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 use arrayvec::ArrayString;
+
 #[cfg(feature = "defmt")]
 pub(crate) use defmt::{debug, error, info, trace, warn};
-
 #[cfg(feature = "std")]
 pub(crate) use log::{debug, error, info, trace, warn};
 
@@ -34,15 +34,16 @@ pub mod readwrite;
 pub mod socket;
 pub mod transfer;
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 use core::fmt::Write;
-pub use socket::Socket;
 
-pub use core::net::{Ipv4Addr, SocketAddrV4};
+pub use client::WincClient;
 
+// TODO: None of this should be public
 pub use client::SockHolder;
-pub use client::{ClientSocketOp, Handle, WincClient};
-
+pub use client::{ClientSocketOp, Handle};
+pub use core::net::{Ipv4Addr, SocketAddrV4};
+pub use socket::Socket;
 pub mod wifi;
 
 #[derive(Debug, PartialEq)]
@@ -104,7 +105,7 @@ impl<'a> defmt::Format for HexWrap<'a> {
     }
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 pub mod nonstd;
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "defmt")]
 pub use nonstd::Ipv4AddrFormatWrapper;
