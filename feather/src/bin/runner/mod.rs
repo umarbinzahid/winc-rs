@@ -9,13 +9,15 @@ use wincwifi::manager::{AuthType, EventListener, Manager};
 use super::bsp::hal::prelude::*;
 use wincwifi::Handle;
 
-use crate::{stack::WincClient, DEFAULT_TEST_PASSWORD, DEFAULT_TEST_SSID};
+use wincwifi::WincClient;
+
+use crate::{DEFAULT_TEST_PASSWORD, DEFAULT_TEST_SSID};
 
 pub type MyTcpClientStack<'a> =
-    &'a mut dyn TcpClientStack<TcpSocket = Handle, Error = crate::stack::StackError>;
+    &'a mut dyn TcpClientStack<TcpSocket = Handle, Error = wincwifi::StackError>;
 
 pub type MyUdpClientStack<'a> =
-    &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = crate::stack::StackError>;
+    &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = wincwifi::StackError>;
 
 pub struct Callbacks {
     connected: bool,
@@ -48,9 +50,9 @@ impl EventListener for Callbacks {
 pub fn connect_and_run(
     message: &str,
     tcp: bool,
-    execute_tcp: impl FnOnce(MyTcpClientStack) -> Result<(), crate::stack::StackError>,
-    execute_udp: impl FnOnce(MyUdpClientStack) -> Result<(), crate::stack::StackError>,
-) -> Result<(), crate::stack::StackError> {
+    execute_tcp: impl FnOnce(MyTcpClientStack) -> Result<(), wincwifi::StackError>,
+    execute_udp: impl FnOnce(MyUdpClientStack) -> Result<(), wincwifi::StackError>,
+) -> Result<(), wincwifi::StackError> {
     if let Ok((delay_tick, mut red_led, cs, spi)) = init() {
         defmt::println!("{}", message);
 

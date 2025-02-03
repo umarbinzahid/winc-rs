@@ -295,7 +295,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xCA, 0xFF, 0xFF, 0xFF,
             0x00, 0xFF, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04,
         ];
-        let mut writer = writebuf.as_mut_slice();
+        let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(PrefixXfer::new(writer));
         chip.crc = false;
         let res = chip.single_reg_read(0x10).unwrap();
@@ -316,7 +316,7 @@ mod tests {
             0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04, 0xFF,
             0xFF, 0xFF, 68, 0x1,
         ];
-        let mut writer = writebuf.as_mut_slice();
+        let writer = writebuf.as_mut_slice();
 
         let mut chip = ChipAccess::new(PrefixXfer::new(writer));
         let res = chip.single_reg_read(0x10).unwrap();
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn test_read_chip_simple() {
         let mut writebuf = [0xFF, 0xFF, 0xFF, 0xFF, 0xCA, 0x0, 0xF0, 1, 2, 3, 4];
-        let mut writer = writebuf.as_mut_slice();
+        let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(writer);
         chip.crc = false;
         let res = chip.single_reg_read(0x10);
@@ -345,7 +345,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /*echo cmd byte */ 0xCA, /*status */ 0x0,
             /*data status*/ 0xF3, /*data */ 1, 2, 3, 4, /*2 byte crc*/ 42, 0,
         ];
-        let mut writer = writebuf.as_mut_slice();
+        let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(writer);
         let res = chip.single_reg_read(0x10);
         assert_eq!(res, Ok(0x04030201));

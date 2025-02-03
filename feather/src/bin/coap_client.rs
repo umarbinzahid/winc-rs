@@ -7,12 +7,11 @@ use feather as bsp;
 use nb::block;
 
 mod runner;
-mod stack;
 
 use bsp::shared::parse_ip_octets;
 use core::str::FromStr;
 use runner::{connect_and_run, MyUdpClientStack};
-use stack::StackError;
+use wincwifi::StackError;
 
 fn run<S, E>(stack: &mut S, target: core::net::SocketAddr) -> Result<(), E>
 where

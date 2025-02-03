@@ -1,6 +1,9 @@
 use super::SocketError;
 
-#[derive(Debug, defmt::Format)]
+use embedded_nal::nb;
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
 pub enum StackError {
     WouldBlock,
     GeneralTimeout,
@@ -10,12 +13,12 @@ pub enum StackError {
     OutOfSockets,
     CloseFailed,
     Unexpected,
-    DispatchError(wincwifi::errors::Error),
-    ConnectSendFailed(wincwifi::errors::Error),
-    ReceiveFailed(wincwifi::errors::Error),
-    SendSendFailed(wincwifi::errors::Error),
-    SendCloseFailed(wincwifi::errors::Error),
-    WincWifiFail(wincwifi::errors::Error),
+    DispatchError(crate::errors::Error),
+    ConnectSendFailed(crate::errors::Error),
+    ReceiveFailed(crate::errors::Error),
+    SendSendFailed(crate::errors::Error),
+    SendCloseFailed(crate::errors::Error),
+    WincWifiFail(crate::errors::Error),
     OpFailed(SocketError),
 }
 
@@ -31,8 +34,8 @@ impl From<SocketError> for StackError {
     }
 }
 
-impl From<wincwifi::errors::Error> for StackError {
-    fn from(inner: wincwifi::errors::Error) -> Self {
+impl From<crate::errors::Error> for StackError {
+    fn from(inner: crate::errors::Error) -> Self {
         Self::WincWifiFail(inner)
     }
 }

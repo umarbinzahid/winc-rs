@@ -37,6 +37,7 @@ pub mod transfer;
 #[cfg(feature = "defmt")]
 use core::fmt::Write;
 
+pub use client::StackError;
 pub use client::WincClient;
 
 // TODO: None of this should be public
@@ -105,7 +106,5 @@ impl<'a> defmt::Format for HexWrap<'a> {
     }
 }
 
-#[cfg(feature = "defmt")]
 pub mod nonstd;
-#[cfg(feature = "defmt")]
 pub use nonstd::Ipv4AddrFormatWrapper;

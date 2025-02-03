@@ -14,7 +14,9 @@
 
 use crate::Ipv4Addr;
 
+#[derive(Debug)]
 pub struct Ipv4AddrFormatWrapper<'a> {
+    #[allow(unused)]
     ip: &'a Ipv4Addr,
 }
 

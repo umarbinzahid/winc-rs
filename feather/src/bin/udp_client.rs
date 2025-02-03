@@ -4,7 +4,7 @@
 use bsp::shared::parse_ip_octets;
 use core::str::FromStr;
 use feather as bsp;
-use stack::StackError;
+use wincwifi::StackError;
 
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use embedded_nal::nb::block;
@@ -17,7 +17,6 @@ const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
 
 mod runner;
-mod stack;
 
 use runner::{connect_and_run, MyUdpClientStack};
 

@@ -1,14 +1,16 @@
 use embedded_nal::TcpClientStack;
 
-use super::WincClient;
+use super::ClientSocketOp;
 use super::EventListener;
 use super::Handle;
 use super::StackError;
-use super::ClientSocketOp;
+use super::WincClient;
 
-impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientStack
-    for WincClient<'a, X, E>
-{
+use super::Xfer;
+use crate::debug;
+use embedded_nal::nb;
+
+impl<'a, X: Xfer, E: EventListener> embedded_nal::TcpClientStack for WincClient<'a, X, E> {
     type TcpSocket = Handle;
     type Error = StackError;
     fn socket(
@@ -34,7 +36,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
                 let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
                 *op = ClientSocketOp::Connect;
                 let op = *op;
-                defmt::debug!("<> Sending send_socket_connect to {:?}", sock);
+                debug!("<> Sending send_socket_connect to {:?}", sock);
                 self.manager
                     .send_socket_connect(*sock, addr)
                     .map_err(|x| StackError::ConnectSendFailed(x))?;
@@ -53,7 +55,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
         *op = ClientSocketOp::Send;
         let op = *op;
-        defmt::debug!("<> Sending socket send_send to {:?}", sock);
+        debug!("<> Sending socket send_send to {:?}", sock);
         self.manager
             .send_send(*sock, data)
             .map_err(|x| StackError::SendSendFailed(x))?;
@@ -70,7 +72,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         *op = ClientSocketOp::Recv;
         let op = *op;
         let timeout = Self::RECV_TIMEOUT;
-        defmt::debug!("<> Sending socket send_recv to {:?}", sock);
+        debug!("<> Sending socket send_recv to {:?}", sock);
         self.manager
             .send_recv(*sock, timeout as u32)
             .map_err(|x| StackError::ReceiveFailed(x))?;
@@ -95,4 +97,3 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientS
         Ok(())
     }
 }
-

@@ -1,17 +1,22 @@
-use super::WincClient;
+use super::ClientSocketOp;
 use super::EventListener;
 use super::Handle;
 use super::StackError;
-use super::ClientSocketOp;
+use super::WincClient;
 use embedded_nal::UdpClientStack;
 
-impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
+use super::Xfer;
+
+use crate::debug;
+use embedded_nal::nb;
+
+impl<'a, X: Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
     type UdpSocket = Handle;
 
     type Error = StackError;
 
     fn socket(&mut self) -> Result<Self::UdpSocket, Self::Error> {
-        defmt::debug!("<> Calling new UDP socket");
+        debug!("<> Calling new UDP socket");
         self.dispatch_events()?;
         let s = self.get_next_session_id();
         let handle = self
@@ -19,7 +24,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
             .udp_sockets
             .add(s)
             .ok_or(StackError::OutOfSockets)?;
-        defmt::debug!("<> Got handle {:?} ", handle.0);
+        debug!("<> Got handle {:?} ", handle.0);
         Ok(handle)
     }
 
@@ -31,7 +36,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         self.dispatch_events()?;
         match remote {
             core::net::SocketAddr::V4(addr) => {
-                defmt::debug!("<> Connect handle is {:?}", socket.0);
+                debug!("<> Connect handle is {:?}", socket.0);
                 let (_sock, _op) = self.callbacks.udp_sockets.get(*socket).unwrap();
                 self.last_send_addr = Some(addr);
             }
@@ -42,11 +47,11 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
 
     fn send(&mut self, socket: &mut Self::UdpSocket, buffer: &[u8]) -> nb::Result<(), Self::Error> {
         self.dispatch_events()?;
-        defmt::debug!("<> in udp send {:?}", socket.0);
+        debug!("<> in udp send {:?}", socket.0);
         let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
         *op = ClientSocketOp::SendTo;
         let op = *op;
-        defmt::debug!("<> Sending socket udp send_send to {:?}", sock);
+        debug!("<> Sending socket udp send_send to {:?}", sock);
         if let Some(addr) = self.last_send_addr {
             self.manager
                 .send_sendto(*sock, addr, buffer)
@@ -68,7 +73,7 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincC
         *op = ClientSocketOp::RecvFrom;
         let op = *op;
         let timeout = Self::RECV_TIMEOUT;
-        defmt::debug!("<> Sending udp socket send_recv to {:?}", sock);
+        debug!("<> Sending udp socket send_recv to {:?}", sock);
         self.manager
             .send_recvfrom(*sock, timeout)
             .map_err(|x| StackError::ReceiveFailed(x))?;

@@ -5,7 +5,7 @@ use embedded_nal::Dns;
 use crate::transfer::Xfer;
 use crate::WincClient;
 
-impl<X: Xfer> Dns for WincClient<X> {
+impl<'a, X: Xfer, E: crate::manager::EventListener> Dns for WincClient<'a, X, E> {
     type Error = ();
 
     fn get_host_by_name(
