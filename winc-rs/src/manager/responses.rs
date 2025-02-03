@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::readwrite::{Read, ReadExactError};
-use crate::{Ipv4Addr, SocketAddrV4};
+use core::net::{Ipv4Addr, SocketAddrV4};
+
 
 use super::constants::{AuthType, PingError, SocketError};
 use crate::errors::Error;
@@ -34,7 +35,7 @@ use crate::display_to_defmt;
 
 const AF_INET: u16 = 2;
 
-use crate::Socket;
+use crate::socket::Socket;
 
 type HostName = ArrayString<64>;
 type Ssid = ArrayString<33>;

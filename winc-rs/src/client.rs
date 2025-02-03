@@ -1,7 +1,7 @@
 use crate::manager::SOCKET_BUFFER_MAX_LENGTH;
 use crate::manager::{EventListener, Manager};
 use crate::transfer::Xfer;
-use crate::Socket;
+use crate::socket::Socket;
 
 use crate::Ipv4AddrFormatWrapper;
 
@@ -15,6 +15,7 @@ pub struct Handle(pub u8);
 mod stack_error;
 mod tcp_stack;
 mod udp_stack;
+mod dns;
 pub use stack_error::StackError;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -27,7 +28,6 @@ pub enum ClientSocketOp {
     SendTo,
     Recv,
     RecvFrom,
-    Close,
 }
 
 pub struct SockHolder<const N: usize, const BASE: usize> {
@@ -296,7 +296,7 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
             last_send_addr: None,
         }
     }
-    pub fn get_next_session_id(&mut self) -> u16 {
+    fn get_next_session_id(&mut self) -> u16 {
         let ret = self.next_session_id;
         self.next_session_id += 1;
         ret

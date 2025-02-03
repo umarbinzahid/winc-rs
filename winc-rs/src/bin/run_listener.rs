@@ -15,8 +15,9 @@
 use wincwifi::errors::Error;
 use wincwifi::manager::{AuthType, EventListener, Manager};
 use wincwifi::transfer::PrefixXfer;
-use wincwifi::Socket;
-use wincwifi::{Ipv4Addr, SocketAddrV4};
+use wincwifi::socket::Socket;
+use core::net::{Ipv4Addr, SocketAddrV4};
+
 
 #[cfg(feature = "defmt")]
 pub(crate) use defmt::{debug, info};

@@ -12,8 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO: High-level file comment.
-
+//! Winc Wifi library
+//! 
+//! NOTE: This very much Work In Progress.
+//! The main entry point is [WincClient].
+//! Barebones [embedded_nal::TcpClientStack] and [embedded_nal::TcpClientStack] 
+//! are there, but not well tested.
+//! 
+//! The low-lever library is in [manager] module, it's the part that wraps the
+//! HIF protocol and the chip registers.
+//! 
+//! Connecting to AP, getting and IP, DNS lookups etc are implemented.
+//! 
+//! 
 #![no_std]
 
 #[cfg(feature = "std")]
@@ -41,11 +52,7 @@ pub use client::StackError;
 pub use client::WincClient;
 
 // TODO: None of this should be public
-pub use client::SockHolder;
-pub use client::{ClientSocketOp, Handle};
-pub use core::net::{Ipv4Addr, SocketAddrV4};
-pub use socket::Socket;
-pub mod wifi;
+pub use client::Handle;
 
 #[derive(Debug, PartialEq)]
 pub enum StrError {

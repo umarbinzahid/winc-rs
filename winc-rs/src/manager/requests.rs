@@ -15,7 +15,8 @@
 use crate::readwrite::BufferOverflow;
 use crate::readwrite::Write;
 
-use crate::{Ipv4Addr, Socket, SocketAddrV4};
+use crate::socket::Socket;
+use core::net::{Ipv4Addr, SocketAddrV4};
 
 use super::constants::AuthType;
 

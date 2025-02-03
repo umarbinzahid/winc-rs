@@ -2,6 +2,23 @@
 name = "wincwifi"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+documentation = "https://docs.rs/wincwifi"
+description = """
+WINC1500 Wifi chip embedded driver
+"""
+keywords = [
+    "embedded",
+    "no-std",
+    "wifi",
+    "winc1500",
+    "atwinc1500"
+]
+categories = [
+    "embedded",
+    "hardware-support",
+    "no-std",
+]
 
 [dependencies]
 log = {version="0.4.17", default-features = false, optional=true }
@@ -12,10 +29,10 @@ crc-any = { version = "2.4.3", default-features = false }
 # Embedded NAL
 embedded-nal = "0.9.0"
 
-# Sparsely used, maybe drop
+# TODO: Sparsely used, maybe drop
 arrayvec =  { version = "0.7.2", default-features = false }
 
-# TODO: Remove
+# TODO: Remove maybe ?
 void = { version =  "1", default-features = false }
 
 simple_logger = { version = "4.0.0", default-features = false, optional=true }

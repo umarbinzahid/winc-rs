@@ -16,7 +16,7 @@ use crate::errors::Error;
 use core::fmt::Debug;
 
 use crate::transfer::Xfer;
-use crate::Socket;
+use crate::socket::Socket;
 
 mod chip_access;
 mod constants;
@@ -34,7 +34,7 @@ use responses::*;
 pub use constants::WifiConnError;
 pub use responses::{ConnectionInfo, ScanResult};
 
-use crate::{Ipv4Addr, SocketAddrV4};
+use core::net::{Ipv4Addr, SocketAddrV4};
 
 #[cfg(feature = "defmt")]
 use crate::nonstd::Ipv4AddrFormatWrapper;

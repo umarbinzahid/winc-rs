@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Ipv4Addr;
+use core::net::Ipv4Addr;
 
 #[derive(Debug)]
 pub struct Ipv4AddrFormatWrapper<'a> {
