@@ -1,16 +1,18 @@
-use core::convert::Infallible;
-
-use embedded_nal::{TcpClientStack, UdpClientStack};
 use wincwifi::manager::EventListener;
 use wincwifi::manager::SocketError;
 use wincwifi::Ipv4AddrFormatWrapper;
 use wincwifi::Socket;
 
-use embedded_nal::nb;
 use wincwifi::SockHolder;
 
 use wincwifi::wifi::errors;
 use wincwifi::{ClientSocketOp, Handle};
+
+mod stack_error;
+pub use stack_error::StackError;
+
+mod udp_stack;
+mod tcp_stack;
 
 struct SocketCallbacks {
     // #define TCP_SOCK_MAX										(7)
@@ -225,58 +227,6 @@ impl EventListener for SocketCallbacks {
     }
 }
 
-#[derive(Debug, defmt::Format)]
-pub enum StackError {
-    WouldBlock,
-    GeneralTimeout,
-    ConnectTimeout,
-    RecvTimeout,
-    SendTimeout,
-    OutOfSockets,
-    CloseFailed,
-    Unexpected,
-    DispatchError(wincwifi::errors::Error),
-    ConnectSendFailed(wincwifi::errors::Error),
-    ReceiveFailed(wincwifi::errors::Error),
-    SendSendFailed(wincwifi::errors::Error),
-    SendCloseFailed(wincwifi::errors::Error),
-    WincWifiFail(wincwifi::errors::Error),
-    OpFailed(SocketError),
-}
-
-impl From<Infallible> for StackError {
-    fn from(_: Infallible) -> Self {
-        unreachable!()
-    }
-}
-
-impl From<SocketError> for StackError {
-    fn from(inner: SocketError) -> Self {
-        Self::OpFailed(inner)
-    }
-}
-
-impl From<wincwifi::errors::Error> for StackError {
-    fn from(inner: wincwifi::errors::Error) -> Self {
-        Self::WincWifiFail(inner)
-    }
-}
-
-impl embedded_nal::TcpError for StackError {
-    fn kind(&self) -> embedded_nal::TcpErrorKind {
-        embedded_nal::TcpErrorKind::Other
-    }
-}
-
-impl From<nb::Error<StackError>> for StackError {
-    fn from(inner: nb::Error<StackError>) -> Self {
-        match inner {
-            nb::Error::WouldBlock => StackError::WouldBlock,
-            nb::Error::Other(e) => e,
-        }
-    }
-}
-
 pub struct WincClient<'a, X: wincwifi::transfer::Xfer, E: EventListener> {
     manager: wincwifi::manager::Manager<X, E>,
     delay: &'a mut dyn FnMut(u32) -> (),
@@ -353,186 +303,5 @@ impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> WincClient<'a, X, E> {
             self.dispatch_events()?;
             timeout -= self.poll_loop_delay as i32;
         }
-    }
-}
-
-impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> embedded_nal::TcpClientStack
-    for WincClient<'a, X, E>
-{
-    type TcpSocket = Handle;
-    type Error = StackError;
-    fn socket(
-        &mut self,
-    ) -> Result<<Self as TcpClientStack>::TcpSocket, <Self as TcpClientStack>::Error> {
-        self.dispatch_events()?;
-        let s = self.get_next_session_id();
-        let handle = self
-            .callbacks
-            .tcp_sockets
-            .add(s)
-            .ok_or(StackError::OutOfSockets)?;
-        Ok(handle)
-    }
-    fn connect(
-        &mut self,
-        socket: &mut <Self as TcpClientStack>::TcpSocket,
-        remote: core::net::SocketAddr,
-    ) -> Result<(), nb::Error<<Self as TcpClientStack>::Error>> {
-        self.dispatch_events()?;
-        match remote {
-            core::net::SocketAddr::V4(addr) => {
-                let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
-                *op = ClientSocketOp::Connect;
-                let op = *op;
-                defmt::debug!("<> Sending send_socket_connect to {:?}", sock);
-                self.manager
-                    .send_socket_connect(*sock, addr)
-                    .map_err(|x| StackError::ConnectSendFailed(x))?;
-                self.wait_for_op_ack(*socket, op, Self::CONNECT_TIMEOUT, true)?;
-            }
-            core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
-        }
-        Ok(())
-    }
-    fn send(
-        &mut self,
-        socket: &mut <Self as TcpClientStack>::TcpSocket,
-        data: &[u8],
-    ) -> Result<usize, nb::Error<<Self as TcpClientStack>::Error>> {
-        self.dispatch_events()?;
-        let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
-        *op = ClientSocketOp::Send;
-        let op = *op;
-        defmt::debug!("<> Sending socket send_send to {:?}", sock);
-        self.manager
-            .send_send(*sock, data)
-            .map_err(|x| StackError::SendSendFailed(x))?;
-        self.wait_for_op_ack(*socket, op, Self::SEND_TIMEOUT, true)?;
-        Ok(data.len())
-    }
-    fn receive(
-        &mut self,
-        socket: &mut <Self as TcpClientStack>::TcpSocket,
-        data: &mut [u8],
-    ) -> Result<usize, nb::Error<<Self as TcpClientStack>::Error>> {
-        self.dispatch_events()?;
-        let (sock, op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
-        *op = ClientSocketOp::Recv;
-        let op = *op;
-        let timeout = Self::RECV_TIMEOUT;
-        defmt::debug!("<> Sending socket send_recv to {:?}", sock);
-        self.manager
-            .send_recv(*sock, timeout as u32)
-            .map_err(|x| StackError::ReceiveFailed(x))?;
-        let recv_len = self.wait_for_op_ack(*socket, op, self.recv_timeout, true)?;
-        {
-            let dest_slice = &mut data[..recv_len];
-            dest_slice.copy_from_slice(&self.callbacks.recv_buffer[..recv_len]);
-        }
-        Ok(recv_len)
-    }
-    fn close(&mut self, socket: <Self as TcpClientStack>::TcpSocket) -> Result<(), Self::Error> {
-        self.dispatch_events()?;
-        let (sock, _op) = self.callbacks.tcp_sockets.get(socket).unwrap();
-        self.manager
-            .send_close(*sock)
-            .map_err(|x| StackError::SendCloseFailed(x))?;
-        self.callbacks
-            .tcp_sockets
-            .get(socket)
-            .ok_or(StackError::CloseFailed)?;
-        self.callbacks.tcp_sockets.remove(socket);
-        Ok(())
-    }
-}
-
-impl<'a, X: wincwifi::transfer::Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
-    type UdpSocket = Handle;
-
-    type Error = StackError;
-
-    fn socket(&mut self) -> Result<Self::UdpSocket, Self::Error> {
-        defmt::debug!("<> Calling new UDP socket");
-        self.dispatch_events()?;
-        let s = self.get_next_session_id();
-        let handle = self
-            .callbacks
-            .udp_sockets
-            .add(s)
-            .ok_or(StackError::OutOfSockets)?;
-        defmt::debug!("<> Got handle {:?} ", handle.0);
-        Ok(handle)
-    }
-
-    fn connect(
-        &mut self,
-        socket: &mut Self::UdpSocket,
-        remote: core::net::SocketAddr,
-    ) -> Result<(), Self::Error> {
-        self.dispatch_events()?;
-        match remote {
-            core::net::SocketAddr::V4(addr) => {
-                defmt::debug!("<> Connect handle is {:?}", socket.0);
-                let (_sock, _op) = self.callbacks.udp_sockets.get(*socket).unwrap();
-                self.last_send_addr = Some(addr);
-            }
-            core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
-        }
-        Ok(())
-    }
-
-    fn send(&mut self, socket: &mut Self::UdpSocket, buffer: &[u8]) -> nb::Result<(), Self::Error> {
-        self.dispatch_events()?;
-        defmt::debug!("<> in udp send {:?}", socket.0);
-        let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
-        *op = ClientSocketOp::SendTo;
-        let op = *op;
-        defmt::debug!("<> Sending socket udp send_send to {:?}", sock);
-        if let Some(addr) = self.last_send_addr {
-            self.manager
-                .send_sendto(*sock, addr, buffer)
-                .map_err(|x| StackError::SendSendFailed(x))?;
-        } else {
-            return Err(StackError::Unexpected.into());
-        }
-        self.wait_for_op_ack(*socket, op, Self::SEND_TIMEOUT, false)?;
-        Ok(())
-    }
-
-    fn receive(
-        &mut self,
-        socket: &mut Self::UdpSocket,
-        buffer: &mut [u8],
-    ) -> nb::Result<(usize, core::net::SocketAddr), Self::Error> {
-        self.dispatch_events()?;
-        let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
-        *op = ClientSocketOp::RecvFrom;
-        let op = *op;
-        let timeout = Self::RECV_TIMEOUT;
-        defmt::debug!("<> Sending udp socket send_recv to {:?}", sock);
-        self.manager
-            .send_recvfrom(*sock, timeout)
-            .map_err(|x| StackError::ReceiveFailed(x))?;
-        let recv_len = self.wait_for_op_ack(*socket, op, self.recv_timeout, false)?;
-        {
-            let dest_slice = &mut buffer[..recv_len];
-            dest_slice.copy_from_slice(&self.callbacks.recv_buffer[..recv_len]);
-        }
-        let f = self.last_send_addr.unwrap();
-        Ok((recv_len, core::net::SocketAddr::V4(f)))
-    }
-
-    fn close(&mut self, socket: Self::UdpSocket) -> Result<(), Self::Error> {
-        self.dispatch_events()?;
-        let (sock, _op) = self.callbacks.udp_sockets.get(socket).unwrap();
-        self.manager
-            .send_close(*sock)
-            .map_err(|x| StackError::SendCloseFailed(x))?;
-        self.callbacks
-            .udp_sockets
-            .get(socket)
-            .ok_or(StackError::CloseFailed)?;
-        self.callbacks.udp_sockets.remove(socket);
-        Ok(())
     }
 }

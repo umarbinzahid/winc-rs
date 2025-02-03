@@ -94,7 +94,7 @@ pub trait EventListener {
         debug!("Got RSSI:{}", level)
     }
     fn on_resolve(&mut self, ip: Ipv4Addr, host: &str) {
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!("Got resolve ip:{} host:{}", ip, host);
         #[cfg(feature = "defmt")]
         debug!(
@@ -128,7 +128,7 @@ pub trait EventListener {
         )
     }
     fn on_ip_conflict(&mut self, ip: Ipv4Addr) {
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!("on_ip_conflict: {}", ip);
         #[cfg(feature = "defmt")]
         debug!("on_ip_conflict: {}", Ipv4AddrFormatWrapper::new(&ip));
@@ -142,7 +142,7 @@ pub trait EventListener {
         num_failed: u16,
         error: PingError,
     ) {
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!(
             "on_ping: ip:{} token:{} rtt:{} succeeded:{} failed:{} error:{:?}",
             ip, token, rtt, num_successful, num_failed, error
@@ -172,7 +172,7 @@ pub trait EventListener {
         data_offset: u16,
     ) {
         // todo : offset seems superflous
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!(
             "on_accept: sockaddr:{} listen_socket:{:?} accept_socket:{:?} data_offset:{}",
             address, listen_socket, accepted_socket, data_offset
@@ -194,7 +194,7 @@ pub trait EventListener {
         debug!("on_send: socket:{:?} length:{:?}", socket, len)
     }
     fn on_recv(&mut self, socket: Socket, address: SocketAddrV4, data: &[u8], err: SocketError) {
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!(
             "on_recv: socket:{:?} address:{:?} data len:{} err:{:?}",
             socket,
@@ -219,7 +219,7 @@ pub trait EventListener {
         data: &[u8],
         err: SocketError,
     ) {
-        #[cfg(feature = "std")]
+        #[cfg(not(feature = "defmt"))]
         debug!(
             "on_recvfrom: socket:{:?} address:{:?} data len:{} err:{:?}",
             socket,

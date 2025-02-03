@@ -9,7 +9,7 @@
             "connectUnderReset": false,
             "chip": "ATSAMD21G18A",
             "flashingConfig": {
-                "flashingEnabled": false,
+                "flashingEnabled": true,
                 "haltAfterReset": true
             },
             "consoleLogLevel": "Debug",

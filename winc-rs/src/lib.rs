@@ -24,7 +24,7 @@ use arrayvec::ArrayString;
 
 #[cfg(feature = "defmt")]
 pub(crate) use defmt::{debug, error, info, trace, warn};
-#[cfg(feature = "std")]
+#[cfg(not(feature = "defmt"))]
 pub(crate) use log::{debug, error, info, trace, warn};
 
 mod client;
