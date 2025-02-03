@@ -11,7 +11,7 @@ connecting to AP, getting an IP, DNS lookups etc are somewhat tested.
 Chip connection is abstracted in a transfer trait, but currently only tested over
 SPI bus. Technically USB/UART could be supported too.
 
-For example programs, see [feather/][https://github.com/kaidokert/winc-rs/tree/main/feather] dir.
+For example programs, see [feather/](https://github.com/kaidokert/winc-rs/tree/main/feather) dir.
 
 ## Contributing
 
