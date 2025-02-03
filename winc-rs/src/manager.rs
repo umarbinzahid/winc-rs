@@ -15,8 +15,8 @@
 use crate::errors::Error;
 use core::fmt::Debug;
 
-use crate::transfer::Xfer;
 use crate::socket::Socket;
+use crate::transfer::Xfer;
 
 mod chip_access;
 mod constants;

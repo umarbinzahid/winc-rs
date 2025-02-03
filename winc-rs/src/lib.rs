@@ -13,18 +13,18 @@
 // limitations under the License.
 
 //! Winc Wifi library
-//! 
+//!
 //! NOTE: This very much Work In Progress.
 //! The main entry point is [WincClient].
-//! Barebones [embedded_nal::TcpClientStack] and [embedded_nal::TcpClientStack] 
+//! Barebones [embedded_nal::TcpClientStack] and [embedded_nal::TcpClientStack]
 //! are there, but not well tested.
-//! 
+//!
 //! The low-lever library is in [manager] module, it's the part that wraps the
 //! HIF protocol and the chip registers.
-//! 
+//!
 //! Connecting to AP, getting and IP, DNS lookups etc are implemented.
-//! 
-//! 
+//!
+//!
 #![no_std]
 
 #[cfg(feature = "std")]

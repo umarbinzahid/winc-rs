@@ -15,7 +15,6 @@
 use crate::readwrite::{Read, ReadExactError};
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-
 use super::constants::{AuthType, PingError, SocketError};
 use crate::errors::Error;
 type ErrType<'a> = ReadExactError<<&'a [u8] as Read>::ReadError>;

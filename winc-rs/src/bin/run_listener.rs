@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::net::{Ipv4Addr, SocketAddrV4};
 use wincwifi::errors::Error;
 use wincwifi::manager::{AuthType, EventListener, Manager};
-use wincwifi::transfer::PrefixXfer;
 use wincwifi::socket::Socket;
-use core::net::{Ipv4Addr, SocketAddrV4};
-
+use wincwifi::transfer::PrefixXfer;
 
 #[cfg(feature = "defmt")]
 pub(crate) use defmt::{debug, info};

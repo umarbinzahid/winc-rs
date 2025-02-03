@@ -1,7 +1,7 @@
 use crate::manager::SOCKET_BUFFER_MAX_LENGTH;
 use crate::manager::{EventListener, Manager};
-use crate::transfer::Xfer;
 use crate::socket::Socket;
+use crate::transfer::Xfer;
 
 use crate::Ipv4AddrFormatWrapper;
 
@@ -12,10 +12,10 @@ use crate::{debug, error};
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Handle(pub u8);
 
+mod dns;
 mod stack_error;
 mod tcp_stack;
 mod udp_stack;
-mod dns;
 pub use stack_error::StackError;
 
 #[derive(PartialEq, Clone, Copy, Debug)]

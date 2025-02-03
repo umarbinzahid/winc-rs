@@ -21,7 +21,7 @@ def start_udp_server(port):
                 try:
                     data, client_address = server_socket.recvfrom(1024)  # Receive data and address from client
                     print(f"Received from {client_address}: {data.decode()}")
-                    
+
                     # Respond to the client
                     response = b"UDP/1.0 200 OK\r\n\r\n"
                     server_socket.sendto(response, client_address)

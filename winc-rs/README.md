@@ -1,6 +1,6 @@
 # WINC1500 Rust crate
 
-WINC1500 Wifi chip adapter. 
+WINC1500 Wifi chip adapter.
 
 embedded_nal::TcpClientStack and embedded_nal::UdpClientStack are implemented
 and tested on [Adafruit Feather M0 WiFi](https://www.adafruit.com/product/3010).
@@ -20,4 +20,3 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 ## License
 
 Apache 2.0; see [`LICENSE`](LICENSE) for details.
-
