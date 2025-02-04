@@ -1,4 +1,5 @@
 use embedded_nal::TcpClientStack;
+use embedded_nal::TcpFullStack;
 
 use super::ClientSocketOp;
 use super::EventListener;
@@ -63,6 +64,9 @@ impl<'a, X: Xfer, E: EventListener> embedded_nal::TcpClientStack for WincClient<
         self.wait_for_op_ack(*socket, op, Self::SEND_TIMEOUT, true)?;
         Ok(data.len())
     }
+
+    // TODO: Return WouldBlock if there's no data, do just one dispatch
+    // But before we do that, clean up wait_for_op_ack
     fn receive(
         &mut self,
         socket: &mut <Self as TcpClientStack>::TcpSocket,
@@ -99,5 +103,22 @@ impl<'a, X: Xfer, E: EventListener> embedded_nal::TcpClientStack for WincClient<
             .ok_or(StackError::CloseFailed)?;
         self.callbacks.tcp_sockets.remove(socket);
         Ok(())
+    }
+}
+
+impl<'a, X: Xfer, E: EventListener> TcpFullStack for WincClient<'a, X, E> {
+    fn bind(&mut self, _socket: &mut Self::TcpSocket, _local_port: u16) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn listen(&mut self, _socket: &mut Self::TcpSocket) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn accept(
+        &mut self,
+        _socket: &mut Self::TcpSocket,
+    ) -> nb::Result<(Self::TcpSocket, core::net::SocketAddr), Self::Error> {
+        todo!()
     }
 }

@@ -28,6 +28,7 @@ pub enum ClientSocketOp {
     SendTo,
     Recv,
     RecvFrom,
+    Bind,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -304,6 +305,20 @@ impl EventListener for SocketCallbacks {
             }
         }
     }
+    fn on_bind(&mut self, sock: Socket, err: crate::manager::SocketError) {
+        debug!("on_bind: socket {:?}", sock);
+        if let Some((s, op)) = self.resolve(sock) {
+            if *op == ClientSocketOp::Bind {
+                *op = ClientSocketOp::None;
+                self.last_error = err;
+            } else {
+                error!(
+                    "UNKNOWN on_bind: socket:{:?} error:{:?} state:{:?}",
+                    s, err, *op
+                );
+            }
+        }
+    }
 }
 
 pub struct WincClient<'a, X: Xfer, E: EventListener> {
@@ -323,6 +338,7 @@ pub enum GenResult {
 }
 
 impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
+    const BIND_TIMEOUT: u32 = 100;
     const SEND_TIMEOUT: u32 = 1000;
     const RECV_TIMEOUT: u32 = 1000;
     const CONNECT_TIMEOUT: u32 = 1000;

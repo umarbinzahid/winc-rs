@@ -18,6 +18,7 @@ pub enum StackError {
     ReceiveFailed(crate::errors::Error),
     SendSendFailed(crate::errors::Error),
     SendCloseFailed(crate::errors::Error),
+    BindFailed(crate::errors::Error),
     WincWifiFail(crate::errors::Error),
     OpFailed(SocketError),
     GlobalOpFailed,

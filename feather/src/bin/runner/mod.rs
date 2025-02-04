@@ -1,5 +1,5 @@
 use cortex_m_systick_countdown::MillisCountDown;
-use embedded_nal::{Dns, TcpClientStack, UdpClientStack};
+use embedded_nal::{Dns, TcpClientStack, TcpFullStack, UdpClientStack, UdpFullStack};
 use feather::{
     init::init,
     shared::{create_delay_closure, SpiStream},
@@ -18,6 +18,12 @@ pub type MyTcpClientStack<'a> =
 
 pub type MyUdpClientStack<'a> =
     &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = wincwifi::StackError>;
+
+pub type MyUdpFullStack<'a> =
+    &'a mut dyn UdpFullStack<UdpSocket = Handle, Error = wincwifi::StackError>;
+
+pub type MyTcpFullStack<'a> =
+    &'a mut dyn TcpFullStack<TcpSocket = Handle, Error = wincwifi::StackError>;
 
 pub type MyDns<'a> = &'a mut dyn Dns<Error = wincwifi::StackError>;
 
@@ -53,12 +59,16 @@ pub enum ClientType {
     Tcp,
     Udp,
     Dns,
+    UdpFull,
+    TcpFull,
 }
 
 pub enum ReturnClient<'a> {
     Tcp(MyTcpClientStack<'a>),
     Udp(MyUdpClientStack<'a>),
     Dns(MyDns<'a>),
+    UdpFull(MyUdpFullStack<'a>),
+    TcpFull(MyTcpFullStack<'a>),
 }
 
 pub fn connect_and_run(
@@ -108,6 +118,8 @@ pub fn connect_and_run(
                 ClientType::Tcp => execute(ReturnClient::Tcp(&mut stack))?,
                 ClientType::Udp => execute(ReturnClient::Udp(&mut stack))?,
                 ClientType::Dns => execute(ReturnClient::Dns(&mut stack))?,
+                ClientType::UdpFull => execute(ReturnClient::UdpFull(&mut stack))?,
+                ClientType::TcpFull => execute(ReturnClient::TcpFull(&mut stack))?,
             }
         } else {
             defmt::error!("Failed to connect to network");

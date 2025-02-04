@@ -5,6 +5,7 @@ use super::Handle;
 use super::StackError;
 use super::WincClient;
 use embedded_nal::UdpClientStack;
+use embedded_nal::UdpFullStack;
 
 use super::Xfer;
 
@@ -64,6 +65,7 @@ impl<'a, X: Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
         Ok(())
     }
 
+    // TODO: We should return WouldBlock if there's no data
     fn receive(
         &mut self,
         socket: &mut Self::UdpSocket,
@@ -101,6 +103,49 @@ impl<'a, X: Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
             .get(socket)
             .ok_or(StackError::CloseFailed)?;
         self.callbacks.udp_sockets.remove(socket);
+        Ok(())
+    }
+}
+
+impl<'a, X: Xfer, E: EventListener> UdpFullStack for WincClient<'a, X, E> {
+    fn bind(&mut self, socket: &mut Self::UdpSocket, local_port: u16) -> Result<(), Self::Error> {
+        // Local server ports needs to be bound to 0.0.0.0
+        let server_addr =
+            core::net::SocketAddrV4::new(core::net::Ipv4Addr::new(0, 0, 0, 0), local_port);
+        let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
+        *op = ClientSocketOp::Bind;
+        let op = *op;
+        self.manager
+            .send_bind(*sock, server_addr)
+            .map_err(|x| StackError::BindFailed(x))?;
+        self.wait_for_op_ack(*socket, op, Self::BIND_TIMEOUT, false)?;
+        Ok(())
+    }
+
+    fn send_to(
+        &mut self,
+        socket: &mut Self::UdpSocket,
+        remote: core::net::SocketAddr,
+        buffer: &[u8],
+    ) -> nb::Result<(), Self::Error> {
+        self.dispatch_events()?;
+        let send_addr = match remote {
+            core::net::SocketAddr::V4(addr) => {
+                debug!("<> Connect handle is {:?}", socket.0);
+                let (_sock, _op) = self.callbacks.udp_sockets.get(*socket).unwrap();
+                addr
+            }
+            core::net::SocketAddr::V6(_) => unimplemented!("IPv6 not supported"),
+        };
+
+        debug!("<> in udp send_to {:?}", socket.0);
+        let (sock, op) = self.callbacks.udp_sockets.get(*socket).unwrap();
+        *op = ClientSocketOp::SendTo;
+        let op = *op;
+        self.manager
+            .send_sendto(*sock, send_addr, buffer)
+            .map_err(|x| StackError::SendSendFailed(x))?;
+        self.wait_for_op_ack(*socket, op, Self::SEND_TIMEOUT, false)?;
         Ok(())
     }
 }
