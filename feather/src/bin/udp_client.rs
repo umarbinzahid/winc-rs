@@ -18,7 +18,7 @@ const DEFAULT_TEST_PASSWORD: &str = "password";
 
 mod runner;
 
-use runner::{connect_and_run, MyUdpClientStack};
+use runner::{connect_and_run, ClientType, ReturnClient};
 
 fn udp_client<T, S>(stack: &mut T, addr: Ipv4Addr, port: u16) -> Result<(), T::Error>
 where
@@ -69,18 +69,19 @@ where
 fn main() -> ! {
     if let Err(something) = connect_and_run(
         "Hello, udp client",
-        false,
-        |_| Ok(()),
-        |stack: MyUdpClientStack| -> Result<(), StackError> {
-            defmt::info!("In UDP client stack thing");
-            let test_ip = option_env!("TEST_IP").unwrap_or(DEFAULT_TEST_IP);
-            let ip_values: [u8; 4] = parse_ip_octets(test_ip);
-            let ip = Ipv4Addr::new(ip_values[0], ip_values[1], ip_values[2], ip_values[3]);
-            let test_port = option_env!("TEST_PORT").unwrap_or(DEFAULT_TEST_PORT);
-            let port = u16::from_str(test_port).unwrap_or(12345);
-            defmt::info!("---- Starting UDP client ---- ");
-            udp_client(stack, ip, port)?;
-            defmt::info!("---- HTTP UDP done ---- ");
+        ClientType::Udp,
+        |stack: ReturnClient| -> Result<(), StackError> {
+            if let ReturnClient::Udp(stack) = stack {
+                defmt::info!("In UDP client stack thing");
+                let test_ip = option_env!("TEST_IP").unwrap_or(DEFAULT_TEST_IP);
+                let ip_values: [u8; 4] = parse_ip_octets(test_ip);
+                let ip = Ipv4Addr::new(ip_values[0], ip_values[1], ip_values[2], ip_values[3]);
+                let test_port = option_env!("TEST_PORT").unwrap_or(DEFAULT_TEST_PORT);
+                let port = u16::from_str(test_port).unwrap_or(12345);
+                defmt::info!("---- Starting UDP client ---- ");
+                udp_client(stack, ip, port)?;
+                defmt::info!("---- HTTP UDP done ---- ");
+            }
             Ok(())
         },
     ) {

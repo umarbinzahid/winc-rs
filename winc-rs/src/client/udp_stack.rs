@@ -1,5 +1,6 @@
 use super::ClientSocketOp;
 use super::EventListener;
+use super::GenResult;
 use super::Handle;
 use super::StackError;
 use super::WincClient;
@@ -77,13 +78,16 @@ impl<'a, X: Xfer, E: EventListener> UdpClientStack for WincClient<'a, X, E> {
         self.manager
             .send_recvfrom(*sock, timeout)
             .map_err(|x| StackError::ReceiveFailed(x))?;
-        let recv_len = self.wait_for_op_ack(*socket, op, self.recv_timeout, false)?;
+        if let GenResult::Len(recv_len) =
+            self.wait_for_op_ack(*socket, op, self.recv_timeout, false)?
         {
             let dest_slice = &mut buffer[..recv_len];
             dest_slice.copy_from_slice(&self.callbacks.recv_buffer[..recv_len]);
+            let f = self.last_send_addr.unwrap();
+            Ok((recv_len, core::net::SocketAddr::V4(f)))
+        } else {
+            Err(nb::Error::Other(StackError::Unexpected))
         }
-        let f = self.last_send_addr.unwrap();
-        Ok((recv_len, core::net::SocketAddr::V4(f)))
     }
 
     fn close(&mut self, socket: Self::UdpSocket) -> Result<(), Self::Error> {

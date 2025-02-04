@@ -1,5 +1,5 @@
 use cortex_m_systick_countdown::MillisCountDown;
-use embedded_nal::{TcpClientStack, UdpClientStack};
+use embedded_nal::{Dns, TcpClientStack, UdpClientStack};
 use feather::{
     init::init,
     shared::{create_delay_closure, SpiStream},
@@ -18,6 +18,8 @@ pub type MyTcpClientStack<'a> =
 
 pub type MyUdpClientStack<'a> =
     &'a mut dyn UdpClientStack<UdpSocket = Handle, Error = wincwifi::StackError>;
+
+pub type MyDns<'a> = &'a mut dyn Dns<Error = wincwifi::StackError>;
 
 pub struct Callbacks {
     connected: bool,
@@ -47,11 +49,22 @@ impl EventListener for Callbacks {
     }
 }
 
+pub enum ClientType {
+    Tcp,
+    Udp,
+    Dns,
+}
+
+pub enum ReturnClient<'a> {
+    Tcp(MyTcpClientStack<'a>),
+    Udp(MyUdpClientStack<'a>),
+    Dns(MyDns<'a>),
+}
+
 pub fn connect_and_run(
     message: &str,
-    tcp: bool,
-    execute_tcp: impl FnOnce(MyTcpClientStack) -> Result<(), wincwifi::StackError>,
-    execute_udp: impl FnOnce(MyUdpClientStack) -> Result<(), wincwifi::StackError>,
+    client_type: ClientType,
+    execute: impl FnOnce(ReturnClient) -> Result<(), wincwifi::StackError>,
 ) -> Result<(), wincwifi::StackError> {
     if let Ok((delay_tick, mut red_led, cs, spi)) = init() {
         defmt::println!("{}", message);
@@ -91,15 +104,15 @@ pub fn connect_and_run(
         let mut stack = WincClient::new(manager, &mut delay_ms2);
         if connected {
             defmt::info!("Network connected");
-            if tcp {
-                execute_tcp(&mut stack)?;
-            } else {
-                defmt::info!("Call UDP here ..");
-                execute_udp(&mut stack)?;
+            match client_type {
+                ClientType::Tcp => execute(ReturnClient::Tcp(&mut stack))?,
+                ClientType::Udp => execute(ReturnClient::Udp(&mut stack))?,
+                ClientType::Dns => execute(ReturnClient::Dns(&mut stack))?,
             }
         } else {
             defmt::error!("Failed to connect to network");
         }
+
         loop {
             stack.dispatch_events()?;
 

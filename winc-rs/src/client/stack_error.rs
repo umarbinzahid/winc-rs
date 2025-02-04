@@ -20,6 +20,9 @@ pub enum StackError {
     SendCloseFailed(crate::errors::Error),
     WincWifiFail(crate::errors::Error),
     OpFailed(SocketError),
+    GlobalOpFailed,
+    DnsTimeout,
+    DnsFailed,
 }
 
 impl From<core::convert::Infallible> for StackError {

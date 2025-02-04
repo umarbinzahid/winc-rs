@@ -30,6 +30,14 @@ pub enum ClientSocketOp {
     RecvFrom,
 }
 
+#[derive(PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum GlobalOp {
+    GetHostByName,
+    #[allow(dead_code)] // todo: we'll add this later
+    Ping,
+}
+
 pub struct SockHolder<const N: usize, const BASE: usize> {
     sockets: [Option<(Socket, ClientSocketOp)>; N],
 }
@@ -81,6 +89,7 @@ struct SocketCallbacks {
     // Todo: move this into socket
     last_error: crate::manager::SocketError,
     last_recv_addr: Option<core::net::SocketAddrV4>,
+    global_op: Option<GlobalOp>,
 }
 
 impl SocketCallbacks {
@@ -92,6 +101,7 @@ impl SocketCallbacks {
             recv_len: 0,
             last_error: crate::manager::SocketError::NoError,
             last_recv_addr: None,
+            global_op: None,
         }
     }
     fn resolve(&mut self, socket: Socket) -> Option<&mut (Socket, ClientSocketOp)> {
@@ -267,6 +277,33 @@ impl EventListener for SocketCallbacks {
             year, month, day, hour, minute, second
         );
     }
+    fn on_resolve(&mut self, ip: core::net::Ipv4Addr, host: &str) {
+        debug!(
+            "on_resolve: ip:{:?} host:{:?}",
+            Ipv4AddrFormatWrapper::new(&ip),
+            host
+        );
+
+        let Some(op) = self.global_op else {
+            error!("UNKNOWN on_resolve: host:{:?}", host);
+            return;
+        };
+
+        match op {
+            GlobalOp::GetHostByName => {
+                debug!(
+                    "on_resolve: ip:{:?} host:{:?}",
+                    Ipv4AddrFormatWrapper::new(&ip),
+                    host
+                );
+                self.last_recv_addr = Some(core::net::SocketAddrV4::new(ip, 0));
+                self.global_op = None; // ends polling
+            }
+            _ => {
+                error!("UNKNOWN on_resolve: host: {} state:{:?}", host, op);
+            }
+        }
+    }
 }
 
 pub struct WincClient<'a, X: Xfer, E: EventListener> {
@@ -280,11 +317,17 @@ pub struct WincClient<'a, X: Xfer, E: EventListener> {
     last_send_addr: Option<core::net::SocketAddrV4>,
 }
 
+pub enum GenResult {
+    Ip(core::net::Ipv4Addr),
+    Len(usize),
+}
+
 impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
     const SEND_TIMEOUT: u32 = 1000;
     const RECV_TIMEOUT: u32 = 1000;
     const CONNECT_TIMEOUT: u32 = 1000;
     const POLL_LOOP_DELAY: u32 = 100;
+    const DNS_TIMEOUT: u32 = 1000;
     pub fn new(manager: Manager<X, E>, delay: &'a mut impl FnMut(u32)) -> Self {
         Self {
             manager,
@@ -306,44 +349,108 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
             .dispatch_events_new(&mut self.callbacks)
             .map_err(|some_err| StackError::DispatchError(some_err))
     }
-    // What could possibly go wrong in this wait ?
+    fn wait_with_timeout<F, T>(
+        &mut self,
+        timeout: u32,
+        mut check_complete: F,
+    ) -> Result<T, StackError>
+    where
+        F: FnMut(&mut Self) -> Option<Result<T, StackError>>,
+    {
+        self.dispatch_events()?;
+        let mut timeout = timeout as i32;
+
+        loop {
+            if timeout <= 0 {
+                return Err(StackError::GeneralTimeout);
+            }
+
+            if let Some(result) = check_complete(self) {
+                return result;
+            }
+
+            (self.delay)(self.poll_loop_delay);
+            self.dispatch_events()?;
+            timeout -= self.poll_loop_delay as i32;
+        }
+    }
+
+    fn wait_for_gen_ack(
+        &mut self,
+        expect_op: GlobalOp,
+        timeout: u32,
+    ) -> Result<GenResult, StackError> {
+        debug!("===>Waiting for gen ack for {:?}", expect_op);
+
+        self.wait_with_timeout(timeout, |client| {
+            if client.callbacks.global_op == None {
+                debug!("<===Ack received {:?}", expect_op);
+
+                if let Some(addr) = client.callbacks.last_recv_addr {
+                    return Some(Ok(GenResult::Ip(*addr.ip())));
+                }
+
+                if client.callbacks.last_error != SocketError::NoError {
+                    return Some(Err(StackError::OpFailed(client.callbacks.last_error)));
+                }
+
+                return Some(Err(StackError::GlobalOpFailed));
+            }
+            None
+        })
+        .or_else(|e| {
+            if matches!(e, StackError::GeneralTimeout) {
+                match expect_op {
+                    GlobalOp::GetHostByName => Err(StackError::DnsTimeout),
+                    _ => Err(StackError::GeneralTimeout),
+                }
+            } else {
+                Err(e)
+            }
+        })
+    }
+
     fn wait_for_op_ack(
         &mut self,
         handle: Handle,
         expect_op: ClientSocketOp,
         timeout: u32,
-        tcp: bool, // todo: this is ugly
-    ) -> Result<usize, StackError> {
-        self.dispatch_events()?;
-        let mut timeout = timeout as i32;
+        tcp: bool,
+    ) -> Result<GenResult, StackError> {
         debug!("===>Waiting for op ack for {:?}", expect_op);
-        loop {
-            if timeout <= 0 {
-                return match expect_op {
-                    ClientSocketOp::Connect => return Err(StackError::ConnectTimeout),
-                    ClientSocketOp::Send => return Err(StackError::SendTimeout),
-                    ClientSocketOp::Recv => return Err(StackError::RecvTimeout),
-                    _ => Err(StackError::GeneralTimeout),
-                };
-            }
+
+        self.wait_with_timeout(timeout, |client| {
             let (_sock, op) = match tcp {
-                true => self.callbacks.tcp_sockets.get(handle).unwrap(),
-                false => self.callbacks.udp_sockets.get(handle).unwrap(),
+                true => client.callbacks.tcp_sockets.get(handle).unwrap(),
+                false => client.callbacks.udp_sockets.get(handle).unwrap(),
             };
+
             if *op == ClientSocketOp::None {
                 debug!(
                     "<===Ack received {:?}, recv_len:{:?}",
-                    *op, self.callbacks.recv_len
+                    *op, client.callbacks.recv_len
                 );
-                if self.callbacks.last_error != SocketError::NoError {
-                    return Err(StackError::OpFailed(self.callbacks.last_error));
+
+                if client.callbacks.last_error != SocketError::NoError {
+                    return Some(Err(StackError::OpFailed(client.callbacks.last_error)));
                 }
-                return Ok(self.callbacks.recv_len);
+
+                return Some(Ok(GenResult::Len(client.callbacks.recv_len)));
             }
-            (self.delay)(self.poll_loop_delay);
-            self.dispatch_events()?;
-            timeout -= self.poll_loop_delay as i32;
-        }
+            None
+        })
+        .or_else(|e| {
+            if matches!(e, StackError::GeneralTimeout) {
+                match expect_op {
+                    ClientSocketOp::Connect => Err(StackError::ConnectTimeout),
+                    ClientSocketOp::Send => Err(StackError::SendTimeout),
+                    ClientSocketOp::Recv => Err(StackError::RecvTimeout),
+                    _ => Err(StackError::GeneralTimeout),
+                }
+            } else {
+                Err(e)
+            }
+        })
     }
 }
 

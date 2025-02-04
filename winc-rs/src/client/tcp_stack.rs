@@ -7,6 +7,7 @@ use super::StackError;
 use super::WincClient;
 
 use super::Xfer;
+use crate::client::GenResult;
 use crate::debug;
 use embedded_nal::nb;
 
@@ -75,13 +76,16 @@ impl<'a, X: Xfer, E: EventListener> embedded_nal::TcpClientStack for WincClient<
         debug!("<> Sending socket send_recv to {:?}", sock);
         self.manager
             .send_recv(*sock, timeout as u32)
-            .map_err(|x| StackError::ReceiveFailed(x))?;
-        let recv_len = self.wait_for_op_ack(*socket, op, self.recv_timeout, true)?;
+            .map_err(|x| nb::Error::Other(StackError::ReceiveFailed(x)))?;
+        if let GenResult::Len(recv_len) =
+            self.wait_for_op_ack(*socket, op, self.recv_timeout, true)?
         {
             let dest_slice = &mut data[..recv_len];
             dest_slice.copy_from_slice(&self.callbacks.recv_buffer[..recv_len]);
+            Ok(recv_len)
+        } else {
+            Err(nb::Error::Other(StackError::Unexpected))
         }
-        Ok(recv_len)
     }
     fn close(&mut self, socket: <Self as TcpClientStack>::TcpSocket) -> Result<(), Self::Error> {
         self.dispatch_events()?;
