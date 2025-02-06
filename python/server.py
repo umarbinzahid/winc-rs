@@ -67,7 +67,8 @@ def start_combined_server(base_port, port_range, additional_ports=[]):
                     # This is a UDP socket
                     data, client_address = s.recvfrom(1024)
                     port = s.getsockname()[1]
-                    print(f"Received UDP from {client_address} on port {port}: {data.decode()}")
+                    decoded = data.decode('utf-8', errors='replace')  # or use errors='ignore'
+                    print(f"Received UDP from {client_address} on port {port}: {decoded}")
 
                     # Send response including port number
                     response = f"UDP/1.0 200 OK from port {port}\r\n\r\n".encode()
@@ -79,9 +80,12 @@ def start_combined_server(base_port, port_range, additional_ports=[]):
                     if data:
                         print(f"Received TCP from {s.getpeername()} on port {port}: {data.decode()}")
 
-                        # Send response including port number
-                        response = f"HTTP/1.0 200 OK from port {port}\r\n\r\n".encode()
-                        s.sendall(response)
+                        if port==12350:
+                            print("Intentionally not responding on port 12350")
+                        else:
+                            # Send response including port number
+                            response = f"HTTP/1.0 200 OK from port {port}\r\n\r\n".encode()
+                            s.sendall(response)
                     else:
                         # No data, client has closed the connection
                         print(f"TCP Client {s.getpeername()} disconnected")

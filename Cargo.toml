@@ -2,7 +2,4 @@
 
 resolver = "2"
 
-members = [
-    "winc-rs",
-    "feather"
-]
+members = ["winc-rs", "feather", "demos"]

@@ -12,35 +12,24 @@ const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
 const DEFAULT_TEST_PORT: &str = "12345";
 
+use demos::udp_server;
+
 use runner::{connect_and_run, ClientType, ReturnClient};
 use wincwifi::StackError;
-
-fn udp_server<T, S>(stack: &mut T, port: u16) -> Result<(), T::Error>
-where
-    T: UdpFullStack<UdpSocket = S> + ?Sized,
-    T::Error: From<embedded_nal::nb::Error<T::Error>>,
-{
-    let sock = stack.socket();
-    if let Ok(mut s) = sock {
-        defmt::println!("-----Socket created-----");
-        stack.bind(&mut s, port)?;
-        defmt::println!("-----Socket bound to port {}-----", port);
-    }
-    // do recvfrom here .. infinite loop ? Or number of iterations ?
-    Ok(())
-}
 
 // Todo: UDP server
 #[cortex_m_rt::entry]
 fn main() -> ! {
     if let Err(something) = connect_and_run(
-        "Hello, udp server",
+        "Hello, UDP server",
         ClientType::UdpFull,
         |stack: ReturnClient| -> Result<(), StackError> {
             if let ReturnClient::UdpFull(stack) = stack {
                 let test_port = option_env!("TEST_PORT").unwrap_or(DEFAULT_TEST_PORT);
                 let port = u16::from_str(test_port).unwrap_or(12345);
-                udp_server(stack, port)?;
+                let loop_forever = option_env!("LOOP_FOREVER").unwrap_or("0");
+                let loop_forever = bool::from_str(loop_forever).unwrap_or(false);
+                udp_server::udp_server(stack, port, loop_forever)?;
             }
             Ok(())
         },

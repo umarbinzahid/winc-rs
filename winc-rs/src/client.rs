@@ -192,21 +192,23 @@ impl EventListener for SocketCallbacks {
         if let Some((s, op)) = self.resolve(socket) {
             if *op == ClientSocketOp::Recv {
                 debug!(
-                    "on_recv: socket:{:?} address:{:?} data:{:?} error:{:?}",
+                    "on_recv: socket:{:?} address:{:?} data:{:?} len:{:?} error:{:?}",
                     s,
                     Ipv4AddrFormatWrapper::new(address.ip()),
                     data,
+                    data.len(),
                     err
                 );
                 *op = ClientSocketOp::None;
                 found = true;
             } else {
                 error!(
-                    "UNKNOWN on_recv: socket:{:?} address:{:?} port:{:?} data:{:?} error:{:?}",
+                    "UNKNOWN on_recv: socket:{:?} address:{:?} port:{:?} data:{:?} len:{:?} error:{:?}",
                     socket,
                     Ipv4AddrFormatWrapper::new(address.ip()),
                     address.port(),
                     data,
+                    data.len(),
                     err
                 );
             }
@@ -371,23 +373,25 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
         mut check_complete: F,
     ) -> Result<T, StackError>
     where
-        F: FnMut(&mut Self) -> Option<Result<T, StackError>>,
+        F: FnMut(&mut Self, u32) -> Option<Result<T, StackError>>,
     {
         self.dispatch_events()?;
         let mut timeout = timeout as i32;
+        let mut elapsed = 0;
 
         loop {
             if timeout <= 0 {
                 return Err(StackError::GeneralTimeout);
             }
 
-            if let Some(result) = check_complete(self) {
+            if let Some(result) = check_complete(self, elapsed) {
                 return result;
             }
 
             (self.delay)(self.poll_loop_delay);
             self.dispatch_events()?;
             timeout -= self.poll_loop_delay as i32;
+            elapsed += self.poll_loop_delay;
         }
     }
 
@@ -398,9 +402,9 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
     ) -> Result<GenResult, StackError> {
         debug!("===>Waiting for gen ack for {:?}", expect_op);
 
-        self.wait_with_timeout(timeout, |client| {
+        self.wait_with_timeout(timeout, |client, elapsed| {
             if client.callbacks.global_op == None {
-                debug!("<===Ack received {:?}", expect_op);
+                debug!("<===Ack received {:?} elapsed:{}ms", expect_op, elapsed);
 
                 if let Some(addr) = client.callbacks.last_recv_addr {
                     return Some(Ok(GenResult::Ip(*addr.ip())));
@@ -435,7 +439,7 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
     ) -> Result<GenResult, StackError> {
         debug!("===>Waiting for op ack for {:?}", expect_op);
 
-        self.wait_with_timeout(timeout, |client| {
+        self.wait_with_timeout(timeout, |client, elapsed| {
             let (_sock, op) = match tcp {
                 true => client.callbacks.tcp_sockets.get(handle).unwrap(),
                 false => client.callbacks.udp_sockets.get(handle).unwrap(),
@@ -443,8 +447,8 @@ impl<'a, X: Xfer, E: EventListener> WincClient<'a, X, E> {
 
             if *op == ClientSocketOp::None {
                 debug!(
-                    "<===Ack received {:?}, recv_len:{:?}",
-                    *op, client.callbacks.recv_len
+                    "<===Ack received for {:?}, recv_len:{:?}, elapsed:{}ms",
+                    expect_op, client.callbacks.recv_len, elapsed
                 );
 
                 if client.callbacks.last_error != SocketError::NoError {
