@@ -15,6 +15,7 @@ where
 
     // do listen, accept, and send/receive
     stack.listen(&mut sock)?;
+    info!("-----Listening-----");
 
     loop {
         let (mut client_sock, addr) = block!(stack.accept(&mut sock))?;
@@ -43,6 +44,7 @@ where
             "-----Sent response to {:?}-----",
             SocketAddrWrap { addr: &addr }
         );
+        stack.close(client_sock)?;
         if !loop_forever {
             break;
         }
