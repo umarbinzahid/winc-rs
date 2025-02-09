@@ -37,6 +37,9 @@ repos:
     -   id: fmt
         name: Run fmt2 for feather
         args: ['--manifest-path=feather/Cargo.toml', '--']
+    -   id: fmt
+        name: Run fmt2 for demos
+        args: ['--manifest-path=demos/Cargo.toml', '--']
 
 -   repo: local
     hooks:

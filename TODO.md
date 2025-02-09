@@ -1,19 +1,24 @@
+## Development notes
+
 - In Client, implement chip start, connect, scan
     - [x] Chip start
     - [x] Connect to AP
     - [x] Scan
+    - [ ] Connect with saved credentials
+- Fix the module start wait
 - Clean up data passing in client events
     - Maybe get rid of EventListener entirely
-- After this, refactor dispatch_events to be internal
+- Refactor dispatch_events to be internal, don't expose to clients
+- Write docs to toplevel APIs
 - Feature gate udp / tcp to make the binary smaller
 - Investigate and reduce bloat a bit more
-- Write docs to toplevel APIs
 - Add missing tests
 - Stress test, fast downloads, multi-socket use cases
 - Add Station mode
-- Get github checks properly running
-- Add badges
+- [x] Get github checks properly running
+- [x] Add badges
 - Implement missing SSL stuff
 - Implement firmware update
 - Make it work with Arduino/Adafruit bootloader
 - Clippy clean
+- Add missing coverage

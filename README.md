@@ -4,11 +4,16 @@
 [![documentation](https://docs.rs/wincwifi/badge.svg)](https://docs.rs/wincwifi/)
 [![Build](https://github.com/kaidokert/winc-rs/actions/workflows/rust.yaml/badge.svg)](https://github.com/kaidokert/winc-rs/actions/workflows/rust.yaml)
 
-This is draft code to interface with ATWINC1500 Wifi chip from Rust.
+Code to interface with ATWINC1500 Wifi chip from Rust.
 Tested on [Adafruit Feather M0 WiFi](https://www.adafruit.com/product/3010).
 
-/feather dir has examples running on Feather
-/winc-rs is the library
+[winc-rs](winc-rs) is the crate that implements chip access, see its [README](winc-rs/README.md) for more info.
+
+[feather](feather) dir has examples running on the Feather board.
+
+[demos](demos) are the & testing programs that Feather examples use, written with
+[embedded-nal](https://github.com/rust-embedded/embedded-nal).
+These are also separately runnable with `std-embedded-nal` crate.
 
 ## Contributing
 
