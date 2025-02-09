@@ -32,13 +32,13 @@ repos:
     rev: v1.0
     hooks:
     -   id: fmt
-        name: Run fmt2 for winc-rs
+        name: Fmt for winc-rs
         args: ['--manifest-path=winc-rs/Cargo.toml', '--']
     -   id: fmt
-        name: Run fmt2 for feather
+        name: Fmt for feather
         args: ['--manifest-path=feather/Cargo.toml', '--']
     -   id: fmt
-        name: Run fmt2 for demos
+        name: Fmt for demos
         args: ['--manifest-path=demos/Cargo.toml', '--']
 
 -   repo: local
