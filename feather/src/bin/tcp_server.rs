@@ -16,6 +16,7 @@ const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
 const DEFAULT_TEST_PORT: &str = "12345";
 
+use defmt::info;
 // Todo: tftp client
 #[cortex_m_rt::entry]
 
@@ -27,8 +28,9 @@ fn main() -> ! {
             if let ReturnClient::TcpFull(stack) = stack {
                 let test_port = option_env!("TEST_PORT").unwrap_or(DEFAULT_TEST_PORT);
                 let port = u16::from_str(test_port).unwrap_or(12345);
-                let loop_forever = option_env!("LOOP_FOREVER").unwrap_or("0");
+                let loop_forever = option_env!("LOOP_FOREVER").unwrap_or("false");
                 let loop_forever = bool::from_str(loop_forever).unwrap_or(false);
+                info!("Loop forever(bool): {}", loop_forever);
                 tcp_server::tcp_server(stack, port, loop_forever)?;
             }
             Ok(())
