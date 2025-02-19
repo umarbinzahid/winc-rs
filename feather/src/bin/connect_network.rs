@@ -8,8 +8,6 @@ use feather::init::init;
 
 use cortex_m_systick_countdown::MillisCountDown;
 
-use wincwifi::manager::Manager;
-
 const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
 
@@ -32,21 +30,23 @@ fn program() -> Result<(), StackError> {
             ssid,
             password
         );
+        let mut stack = WincClient::new(
+            SpiStream::new(cs, spi, create_delay_closure(&mut countdown3)),
+            &mut delay_ms2,
+        );
 
-        let manager = Manager::from_xfer(SpiStream::new(
-            cs,
-            spi,
-            create_delay_closure(&mut countdown3),
-        ));
-        let mut stack = WincClient::new(manager, &mut delay_ms2);
-
-        stack
-            .start_module(&mut |v: u32| -> bool {
-                defmt::debug!("Waiting start .. {}", v);
-                delay_ms(20);
-                false
-            })
-            .unwrap();
+        let mut v = 0;
+        loop {
+            match stack.start_wifi_module() {
+                Ok(_) => break,
+                Err(nb::Error::WouldBlock) => {
+                    defmt::debug!("Waiting start .. {}", v);
+                    v += 1;
+                    delay_ms(5)
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
 
         defmt::info!("Started, connecting to AP ..");
         nb::block!(stack.connect_to_ap(ssid, password))?;

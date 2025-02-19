@@ -19,19 +19,33 @@
 //! Barebones [embedded_nal::TcpClientStack] and [embedded_nal::TcpClientStack]
 //! are there, but not well tested.
 //!
-//! The low-lever library is in [manager] module, it's the part that wraps the
-//! HIF protocol and the chip registers.
+//! The low-lever library is in internal `manager`` module, it's the part that
+//! wraps the HIF protocol and the chip registers.
 //!
 //! Connecting to AP, getting and IP, DNS lookups etc are implemented.
 //!
-//!
+//! Basic usage:
+//! ```no_run
+//! # use wincwifi::WincClient;
+//! # use embedded_nal::{nb, AddrType, Dns};
+//! # fn del_fn(ms: u32) {}
+//! # let mut delay_fn = del_fn;
+//! # let mut buffer = [0; 1];
+//! # let mut spi = buffer.as_mut_slice();
+//! // spi: something that implements the protocol transfer
+//! // delay_fn: a callback function that lets the library wait
+//! let mut client = WincClient::new(spi, &mut delay_fn);
+//! nb::block!(client.start_wifi_module());
+//! nb::block!(client.connect_to_ap("ssid", "password"));
+//! nb::block!(client.get_host_by_name("google.com", AddrType::IPv4));
+//! loop {
+//!     client.heartbeat(); // periodically poll the chip
+//! }
+//! ```
 #![no_std]
 
 #[cfg(feature = "std")]
 extern crate std;
-
-#[cfg(feature = "defmt")]
-use arrayvec::ArrayString;
 
 #[cfg(feature = "defmt")]
 pub(crate) use defmt::{debug, error, info, trace, warn};
@@ -40,16 +54,19 @@ pub(crate) use log::{debug, error, info, trace, warn};
 
 mod client;
 pub mod errors;
-pub mod manager;
+mod manager;
 pub mod readwrite;
-pub mod socket;
+mod socket;
 pub mod transfer;
-
-#[cfg(feature = "defmt")]
-use core::fmt::Write;
 
 pub use client::StackError;
 pub use client::WincClient;
+pub use manager::AuthType;
+pub use manager::ConnectionInfo;
+pub use manager::FirmwareInfo;
+
+// TODO: maybe don't expose this directly
+pub use manager::ScanResult;
 
 // TODO: None of this should be public
 pub use client::Handle;
@@ -73,18 +90,16 @@ impl From<arrayvec::CapacityError> for StrError {
 }
 
 #[cfg(feature = "defmt")]
-fn display_to_defmt<T: core::fmt::Display>(f: defmt::Formatter, v: &T) {
-    let mut x = ArrayString::<40>::default();
-    write!(&mut x, "{}", v).ok();
-    defmt::write!(f, "{}", &x as &str)
-}
-
-#[cfg(feature = "defmt")]
 impl defmt::Format for StrError {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            Self::Utf8Error(e) => display_to_defmt(f, e),
-            Self::CapacityError(e) => display_to_defmt(f, e),
+            Self::Utf8Error(e) => defmt::write!(
+                f,
+                "UTF-8 error: invalid sequence at position {}, error length: {:?}",
+                e.valid_up_to(),
+                e.error_len()
+            ),
+            Self::CapacityError(_) => defmt::write!(f, "Capacity error: array full"),
         }
     }
 }
@@ -113,5 +128,5 @@ impl<'a> defmt::Format for HexWrap<'a> {
     }
 }
 
-pub mod nonstd;
-pub use nonstd::Ipv4AddrFormatWrapper;
+mod nonstd;
+use nonstd::Ipv4AddrFormatWrapper;

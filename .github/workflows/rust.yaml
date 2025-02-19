@@ -10,11 +10,27 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    steps: # Needs to run in a subdirectory
+    steps:
     - uses: actions/checkout@v2
-    - name: Build
+    - uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          target: thumbv6m-none-eabi
+          components: rustfmt, clippy
+          profile: minimal
+    - name: Install flip-link
+      run: cargo install flip-link
+    - name: Build winc-rs
       working-directory: winc-rs
       run: cargo build --verbose
+    - name: Build winc-rs with defmt
+      working-directory: winc-rs
+      env:
+        DEFMT_LOG: "trace"
+      run: cargo build --verbose --features defmt
     - name: Run tests
       working-directory: winc-rs
       run: cargo test --verbose
+    - name: Build feather
+      working-directory: feather
+      run: cargo build --verbose
