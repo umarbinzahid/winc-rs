@@ -13,9 +13,10 @@ use crate::manager::SocketError;
 
 use crate::{debug, error, info};
 
+/// Handle to a socket. Returned by socket APIs
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Handle(pub u8);
+pub struct Handle(u8);
 
 mod dns;
 mod stack_error;
@@ -112,16 +113,41 @@ struct SystemTime {
     second: u8,
 }
 
+#[derive(Debug)]
+pub struct PingResult {
+    pub ip: Ipv4Addr,
+    pub rtt: u32,
+    pub num_successful: u16,
+    pub num_failed: u16,
+    pub error: PingError,
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for PingResult {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "ip: {}, rtt: {}, num_successful: {}, num_failed: {}, error: {}",
+            Ipv4AddrFormatWrapper::new(&self.ip),
+            self.rtt,
+            self.num_successful,
+            self.num_failed,
+            self.error
+        );
+    }
+}
+
 struct ConnectionState {
     conn_state: WifiConnState,
     conn_error: Option<WifiConnError>,
     ip_conf: Option<crate::manager::IPConf>,
-    conn_info: Option<ConnectionInfo>,
     system_time: Option<SystemTime>,
-    rssi_level: Option<i8>,
     ip_conflict: Option<Ipv4Addr>,
-    scan_number_aps: Option<u8>,
-    scan_results: Option<ScanResult>,
+    scan_number_aps: Option<Option<u8>>,
+    scan_results: Option<Option<ScanResult>>,
+    conn_info: Option<Option<ConnectionInfo>>,
+    rssi_level: Option<Option<i8>>,
+    ping_result: Option<Option<PingResult>>,
 }
 
 struct SocketCallbacks {
@@ -182,6 +208,7 @@ impl ConnectionState {
             conn_info: None,
             scan_number_aps: None,
             scan_results: None,
+            ping_result: None,
         }
     }
 }
@@ -189,7 +216,7 @@ impl ConnectionState {
 impl EventListener for SocketCallbacks {
     fn on_rssi(&mut self, level: i8) {
         info!("client: Got RSSI:{}", level);
-        self.connection_state.rssi_level = Some(level);
+        self.connection_state.rssi_level = Some(Some(level));
     }
 
     fn on_resolve(&mut self, ip: core::net::Ipv4Addr, host: &str) {
@@ -228,7 +255,7 @@ impl EventListener for SocketCallbacks {
         self.connection_state.ip_conf = Some(conf);
     }
     fn on_connstate_changed(&mut self, state: WifiConnState, err: WifiConnError) {
-        info!("client: Connection state changed: {:?} {:?}", state, err);
+        debug!("client: Connection state changed: {:?} {:?}", state, err);
         self.connection_state.conn_state = state;
         self.connection_state.conn_error = Some(err);
         match self.state {
@@ -255,7 +282,7 @@ impl EventListener for SocketCallbacks {
 
     fn on_connection_info(&mut self, info: ConnectionInfo) {
         debug!("client: conninfo, state:{}", info);
-        self.connection_state.conn_info = Some(info);
+        self.connection_state.conn_info = Some(Some(info));
     }
     fn on_system_time(&mut self, year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) {
         debug!(
@@ -281,28 +308,14 @@ impl EventListener for SocketCallbacks {
 
     fn on_scan_result(&mut self, result: ScanResult) {
         debug!("Scanresult {}", result);
-        self.connection_state.scan_results = Some(result);
-        match self.state {
-            WifiModuleState::GettingScanResult => {
-                self.state = WifiModuleState::HaveScanResult;
-            }
-            _ => {
-                error!("UNKNOWN STATE on_scan_result: {:?}", self.state);
-            }
-        }
+        self.connection_state.scan_results = Some(Some(result));
     }
     fn on_scan_done(&mut self, num_aps: u8, err: WifiConnError) {
         debug!("Scan done, aps:{} error:{}", num_aps, err);
-        self.connection_state.conn_error = Some(err);
-        self.connection_state.scan_number_aps = Some(num_aps);
-        match self.state {
-            WifiModuleState::Scanning => {
-                self.state = WifiModuleState::ScanDone;
-            }
-            _ => {
-                error!("UNKNOWN STATE on_scan_done: {:?}", self.state);
-            }
+        if err != WifiConnError::Unhandled {
+            self.connection_state.conn_error = Some(err);
         }
+        self.connection_state.scan_number_aps = Some(Some(num_aps));
     }
     fn on_ping(
         &mut self,
@@ -313,9 +326,15 @@ impl EventListener for SocketCallbacks {
         num_failed: u16,
         error: PingError,
     ) {
-        debug!("client: on_ping: ip:{:?} token:{:?} rtt:{:?} num_successful:{:?} num_failed:{:?} error:{:?}",
-            Ipv4AddrFormatWrapper::new(&ip),
-            token, rtt, num_successful, num_failed, error);
+        let ping_result = PingResult {
+            ip,
+            rtt,
+            num_successful,
+            num_failed,
+            error,
+        };
+        debug!("client: on_ping: {:?} token:# {}", ping_result, token);
+        self.connection_state.ping_result = Some(Some(ping_result));
     }
 
     fn on_connect(&mut self, socket: Socket, err: crate::manager::SocketError) {
@@ -551,6 +570,10 @@ pub enum GenResult {
     Accept(core::net::SocketAddrV4, Socket),
 }
 
+/// Client for the WincWifi chip.
+///
+/// This manages the state of the chip and
+/// network connections
 pub struct WincClient<'a, X: Xfer> {
     manager: Manager<X>,
     delay: &'a mut dyn FnMut(u32),
@@ -560,6 +583,7 @@ pub struct WincClient<'a, X: Xfer> {
     next_session_id: u16,
     // TODO: Lets change that per socket
     last_send_addr: Option<core::net::SocketAddrV4>,
+    boot: Option<crate::manager::BootState>,
 }
 
 impl<'a, X: Xfer> WincClient<'a, X> {
@@ -572,7 +596,21 @@ impl<'a, X: Xfer> WincClient<'a, X> {
     const CONNECT_TIMEOUT: u32 = 1000;
     const DNS_TIMEOUT: u32 = 1000;
     const POLL_LOOP_DELAY: u32 = 10;
-    pub fn new(manager: Manager<X>, delay: &'a mut impl FnMut(u32)) -> Self {
+    /// Create a new WincClient..
+    ///
+    /// # Arguments
+    ///
+    /// * `transfer` - The transfer implementation to use for client,
+    ///             typically a struct wrapping SPI communication.
+    /// * `delay` - A delay function. Currently required - a closure
+    ///             that takes millisconds as an arg.
+    ///
+    ///  See [Xfer] for details how to implement a transfer struct.
+    pub fn new(transfer: X, delay: &'a mut impl FnMut(u32)) -> Self {
+        let manager = Manager::from_xfer(transfer);
+        Self::new_internal(manager, delay)
+    }
+    fn new_internal(manager: Manager<X>, delay: &'a mut impl FnMut(u32)) -> Self {
         Self {
             manager,
             callbacks: SocketCallbacks::new(),
@@ -581,6 +619,7 @@ impl<'a, X: Xfer> WincClient<'a, X> {
             poll_loop_delay: Self::POLL_LOOP_DELAY,
             next_session_id: 0,
             last_send_addr: None,
+            boot: None,
         }
     }
     fn get_next_session_id(&mut self) -> u16 {
@@ -588,7 +627,7 @@ impl<'a, X: Xfer> WincClient<'a, X> {
         self.next_session_id += 1;
         ret
     }
-    pub fn dispatch_events(&mut self) -> Result<(), StackError> {
+    fn dispatch_events(&mut self) -> Result<(), StackError> {
         self.manager
             .dispatch_events_new(&mut self.callbacks)
             .map_err(StackError::DispatchError)

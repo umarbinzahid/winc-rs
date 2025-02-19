@@ -7,7 +7,7 @@ use core::net::IpAddr;
 use feather as bsp;
 
 use embedded_nal::Dns;
-use wincwifi::{Ipv4AddrFormatWrapper, StackError};
+use wincwifi::StackError;
 mod runner;
 use runner::{connect_and_run, ClientType, MyDns, ReturnClient};
 
@@ -20,10 +20,18 @@ where
     T: Dns + ?Sized,
     T::Error: From<embedded_nal::nb::Error<T::Error>>,
 {
-    let ip = stack.get_host_by_name(host, embedded_nal::AddrType::IPv4);
+    let ip = nb::block!(stack.get_host_by_name(host, embedded_nal::AddrType::IPv4));
     match ip {
         Ok(IpAddr::V4(ip)) => {
-            defmt::println!("DNS: {} -> {}", host, Ipv4AddrFormatWrapper::new(&ip))
+            let octets = ip.octets();
+            defmt::info!(
+                "DNS: {} -> {}.{}.{}.{}",
+                host,
+                octets[0],
+                octets[1],
+                octets[2],
+                octets[3]
+            )
         }
         _ => defmt::error!("DNS failed: {}", host),
     }

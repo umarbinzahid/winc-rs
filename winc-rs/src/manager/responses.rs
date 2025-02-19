@@ -29,9 +29,6 @@ use core::str::FromStr;
 #[cfg(feature = "defmt")]
 use crate::Ipv4AddrFormatWrapper;
 
-#[cfg(feature = "defmt")]
-use crate::display_to_defmt;
-
 const AF_INET: u16 = 2;
 
 use crate::socket::Socket;
@@ -85,6 +82,7 @@ fn from_c_byte_slice<const N: usize>(input: &[u8]) -> Result<ArrayString<N>, Str
     Ok(ret)
 }
 
+/// A revision number of the firmware
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub struct Revision {
@@ -93,6 +91,7 @@ pub struct Revision {
     pub patch: u8,
 }
 
+/// Information about the firmware version of the Wifi module
 pub struct FirmwareInfo {
     pub chip_id: u32,
     pub firmware_revison: Revision,
@@ -144,14 +143,32 @@ pub struct ConnectionInfo {
     pub ssid: Ssid,
     pub auth: AuthType,
     pub ip: Ipv4Addr,
-    mac: [u8; 6], // todo: mac addr repr
+    pub mac: [u8; 6], // todo: mac addr repr
     pub rssi: i8,
 }
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for ConnectionInfo {
     fn format(&self, f: defmt::Formatter) {
-        display_to_defmt(f, self)
+        defmt::write!(
+            f,
+            "Connection Info:\n\
+             ssid: {}\n\
+             authtype: {:?}\n\
+             ip: {}\n\
+             mac: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\n\
+             rssi: {}",
+            self.ssid.as_str(),
+            self.auth,
+            Ipv4AddrFormatWrapper::new(&self.ip),
+            self.mac[0],
+            self.mac[1],
+            self.mac[2],
+            self.mac[3],
+            self.mac[4],
+            self.mac[5],
+            self.rssi
+        );
     }
 }
 
@@ -185,6 +202,7 @@ impl core::fmt::Display for ConnectionInfo {
     }
 }
 
+/// Result of a scan for access points
 #[derive(Debug, PartialEq, Default)]
 pub struct ScanResult {
     pub index: u8,
@@ -192,6 +210,7 @@ pub struct ScanResult {
     pub auth: AuthType,
     pub channel: u8,
     pub bssid: [u8; 6], // todo: special bssid type?
+    /// SSID of the access point
     pub ssid: Ssid,
 }
 
@@ -229,7 +248,16 @@ impl core::fmt::Display for ScanResult {
 #[cfg(feature = "defmt")]
 impl defmt::Format for ScanResult {
     fn format(&self, f: defmt::Formatter) {
-        display_to_defmt(f, self)
+        defmt::write!(
+            f,
+            "index:{} rssi:{} authtype:{:?} channel:{} bssid:{:?} ssid:{}",
+            self.index,
+            self.rssi,
+            self.auth,
+            self.channel,
+            self.bssid,
+            self.ssid.as_str()
+        );
     }
 }
 
