@@ -24,7 +24,7 @@ where
     match ip {
         Ok(IpAddr::V4(ip)) => {
             let octets = ip.octets();
-            defmt::info!(
+            defmt::println!(
                 "DNS: {} -> {}.{}.{}.{}",
                 host,
                 octets[0],

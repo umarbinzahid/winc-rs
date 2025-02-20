@@ -13,5 +13,5 @@ rustflags = [
 target = "thumbv6m-none-eabi"    # Cortex-M0 and Cortex-M0+
 
 [alias]
-rb = "run --bin"
-rrb = "run --release --bin"
+rb = "run --example"
+rrb = "run --release --example"
