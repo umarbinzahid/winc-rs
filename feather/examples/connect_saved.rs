@@ -5,7 +5,7 @@ use bsp::hal::prelude::*;
 use bsp::shared::SpiStream;
 use feather as bsp;
 use feather::init::init;
-use feather::shared::{create_3_countdowns, delay_fn};
+use feather::shared::{create_countdowns, delay_fn};
 
 use wincwifi::{StackError, WincClient};
 
@@ -13,16 +13,13 @@ fn program() -> Result<(), StackError> {
     if let Ok((delay_tick, mut red_led, cs, spi)) = init() {
         defmt::println!("Hello, Winc Module");
 
-        let mut cnt = create_3_countdowns(&delay_tick);
+        let mut cnt = create_countdowns(&delay_tick);
 
         let mut delay_ms = delay_fn(&mut cnt.0);
         let mut delay_ms2 = delay_fn(&mut cnt.1);
 
         defmt::info!("Connecting to saved network ..",);
-        let mut stack = WincClient::new(
-            SpiStream::new(cs, spi, delay_fn(&mut cnt.2)),
-            &mut delay_ms2,
-        );
+        let mut stack = WincClient::new(SpiStream::new(cs, spi), &mut delay_ms2);
 
         let mut v = 0;
         loop {

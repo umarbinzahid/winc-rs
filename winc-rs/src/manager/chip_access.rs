@@ -80,6 +80,9 @@ impl<X: Xfer> ChipAccess<X> {
         }
     }
 
+    pub fn switch_to_high_speed(&mut self) {
+        self.xfer.switch_to_high_speed();
+    }
     // todo: change reg arg to enum
     pub fn single_reg_read(&mut self, reg: u32) -> Result<u32, Error> {
         let r = reg.to_le_bytes();

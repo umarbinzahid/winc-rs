@@ -273,6 +273,8 @@ impl<X: Xfer> Manager<X> {
             BootStage::FinishFirmwareBoot => {
                 self.chip.single_reg_write(Regs::NmiState.into(), 0)?;
                 self.enable_interrupt_pins()?;
+                // After chip boot, we can go a lot faster
+                self.chip.switch_to_high_speed();
                 return Ok(true);
             }
         }

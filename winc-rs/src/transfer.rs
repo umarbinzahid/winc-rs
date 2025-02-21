@@ -26,6 +26,8 @@ impl<U> ReadWrite for U where U: Read + Write {}
 pub trait Xfer {
     fn recv(&mut self, dest: &mut [u8]) -> Result<(), Error>;
     fn send(&mut self, src: &[u8]) -> Result<(), Error>;
+    // Optionally increase bus wait speed after initialization
+    fn switch_to_high_speed(&mut self) {}
 }
 
 // Blanket implementation

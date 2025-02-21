@@ -9,47 +9,45 @@ use wincwifi::transfer::Xfer;
 use super::SpiBus;
 use core::mem::take;
 
-// Helper trait to define the signature once
-pub trait DelayFunc: FnMut(u32) {}
-impl<U> DelayFunc for U where U: FnMut(u32) {}
+const DEFAULT_WAIT_CYCLES: u32 = 16_000; // hand tested :)
+const FAST_WAIT_CYCLES: u32 = 500; // hand tested :)
 
-// TODO: Maybe this doesn't need a delay at all
-pub struct SpiStream<CS: AnyPin, Spi: SpiBus, Delay: DelayFunc> {
+pub struct SpiStream<CS: AnyPin, Spi: SpiBus> {
     cs: Option<CS>,
     spi: Spi,
-    // Alternative: delay: &'a mut dyn FnMut(u32) as a borrow
-    delay: Delay,
+    wait_cycles: u32,
 }
 
-impl<CS: AnyPin, Spi: SpiBus, Delay: DelayFunc> SpiStream<CS, Spi, Delay> {
-    pub fn new(cs: CS, spi: Spi, delay: Delay) -> Self {
+impl<CS: AnyPin, Spi: SpiBus> SpiStream<CS, Spi> {
+    pub fn new(cs: CS, spi: Spi) -> Self {
         SpiStream {
             cs: Some(cs),
             spi,
-            delay,
+            wait_cycles: DEFAULT_WAIT_CYCLES,
         }
     }
+    fn set_wait_cycles(&mut self, wait_cycles: u32) {
+        self.wait_cycles = wait_cycles;
+    }
     fn transfer(&mut self, buf: &mut [u8]) -> Result<(), Spi::Error> {
-        const WAIT_MS: u32 = 1;
         if let Some(cs) = take(&mut self.cs) {
-            let mut pin = cs.into().into_push_pull_output();
-            pin.set_low().ok();
-
             trace!("send: {=[u8]:#x}", buf);
-            (self.delay)(WAIT_MS);
-            self.spi.transfer_in_place(buf)?;
-            (self.delay)(WAIT_MS);
-            trace!("recv: {=[u8]:#x}", buf);
+            let mut pin = cs.into().into_push_pull_output();
 
+            pin.set_low().ok();
+            cortex_m::asm::delay(self.wait_cycles);
+            self.spi.transfer_in_place(buf)?;
+            cortex_m::asm::delay(self.wait_cycles);
             pin.set_high().ok();
 
             self.cs.get_or_insert(pin.into_mode().into());
+            trace!("recv: {=[u8]:#x}", buf);
         }
         Ok(())
     }
 }
 
-impl<CS: AnyPin, Spi: SpiBus, Delay: DelayFunc> Xfer for SpiStream<CS, Spi, Delay> {
+impl<CS: AnyPin, Spi: SpiBus> Xfer for SpiStream<CS, Spi> {
     fn recv(&mut self, dest: &mut [u8]) -> Result<(), wincwifi::errors::Error> {
         self.transfer(dest)
             .map_err(|_| wincwifi::errors::Error::ReadError)?;
@@ -65,5 +63,8 @@ impl<CS: AnyPin, Spi: SpiBus, Delay: DelayFunc> Xfer for SpiStream<CS, Spi, Dela
         self.transfer(tmp_slice)
             .map_err(|_| wincwifi::errors::Error::WriteError)?;
         Ok(())
+    }
+    fn switch_to_high_speed(&mut self) {
+        self.set_wait_cycles(FAST_WAIT_CYCLES);
     }
 }

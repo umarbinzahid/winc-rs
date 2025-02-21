@@ -15,6 +15,9 @@ use hal::prelude::*;
 
 use super::shared::SpiBus;
 
+// Set SPI bus to 8 Mhz, about as fast as it goes
+const SPI_MHZ: u32 = 8;
+
 use cortex_m_systick_countdown::{PollingSysTick, SysTickCalibration};
 
 pub enum FailureSource {
@@ -57,8 +60,7 @@ pub fn init() -> Result<
 
     let spi_sercom = periph_alias!(peripherals.spi_sercom);
 
-    // Set SPI bus to 1 Mhz
-    let freq = MegaHertz::from_raw(1);
+    let freq = MegaHertz::from_raw(SPI_MHZ);
 
     let spi = bsp::spi_master(
         &mut clocks,
@@ -80,9 +82,11 @@ pub fn init() -> Result<
 
     del.delay_ms(500);
 
+    cs.set_low()?; // CS: pull low for transaction, high to end
     rst.set_low()?;
     del.delay_ms(50);
     rst.set_high()?;
+    cs.set_high()?; // CS: pull low for transaction, high to end
 
     del.delay_ms(500);
 

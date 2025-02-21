@@ -2,11 +2,10 @@
 #![no_std]
 
 use bsp::hal::prelude::*;
-use bsp::shared::{create_delay_closure, SpiStream};
+use bsp::shared::SpiStream;
 use feather as bsp;
 use feather::init::init;
-
-use cortex_m_systick_countdown::MillisCountDown;
+use feather::shared::{create_countdowns, delay_fn};
 
 const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
@@ -17,11 +16,10 @@ fn program() -> Result<(), StackError> {
     if let Ok((delay_tick, mut red_led, cs, spi)) = init() {
         defmt::println!("Hello, Winc Module");
 
-        let mut countdown1 = MillisCountDown::new(&delay_tick);
-        let mut countdown2 = MillisCountDown::new(&delay_tick);
-        let mut countdown3 = MillisCountDown::new(&delay_tick);
-        let mut delay_ms = create_delay_closure(&mut countdown1);
-        let mut delay_ms2 = create_delay_closure(&mut countdown2);
+        let mut cnt = create_countdowns(&delay_tick);
+
+        let mut delay_ms = delay_fn(&mut cnt.0);
+        let mut delay_ms2 = delay_fn(&mut cnt.1);
 
         let ssid = option_env!("TEST_SSID").unwrap_or(DEFAULT_TEST_SSID);
         let password = option_env!("TEST_PASSWORD").unwrap_or(DEFAULT_TEST_PASSWORD);
@@ -30,10 +28,7 @@ fn program() -> Result<(), StackError> {
             ssid,
             password
         );
-        let mut stack = WincClient::new(
-            SpiStream::new(cs, spi, create_delay_closure(&mut countdown3)),
-            &mut delay_ms2,
-        );
+        let mut stack = WincClient::new(SpiStream::new(cs, spi), &mut delay_ms2);
 
         let mut v = 0;
         loop {
@@ -46,6 +41,11 @@ fn program() -> Result<(), StackError> {
                 }
                 Err(e) => return Err(e.into()),
             }
+        }
+
+        for _ in 0..20 {
+            stack.heartbeat().unwrap();
+            delay_ms(200);
         }
 
         defmt::info!("Started, connecting to AP ..");

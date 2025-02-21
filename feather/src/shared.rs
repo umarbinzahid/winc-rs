@@ -11,7 +11,7 @@ pub use spi_stream::SpiStream;
 
 use cortex_m_systick_countdown::{MillisCountDown, PollingSysTick};
 
-pub fn create_delay_closure<'a>(
+fn create_delay_closure<'a>(
     delay: &'a mut MillisCountDown<'a, PollingSysTick>,
 ) -> impl FnMut(u32) + 'a {
     move |v: u32| {
@@ -46,16 +46,11 @@ pub fn parse_ip_octets(ip: &str) -> [u8; 4] {
 
 // Quick helper to create 3 instances of this
 // that currently every init needs
-pub fn create_3_countdowns<'a>(
+pub fn create_countdowns<'a>(
     systick: &'a PollingSysTick,
 ) -> (
     MillisCountDown<'a, PollingSysTick>,
     MillisCountDown<'a, PollingSysTick>,
-    MillisCountDown<'a, PollingSysTick>,
 ) {
-    (
-        MillisCountDown::new(systick),
-        MillisCountDown::new(systick),
-        MillisCountDown::new(systick),
-    )
+    (MillisCountDown::new(systick), MillisCountDown::new(systick))
 }
