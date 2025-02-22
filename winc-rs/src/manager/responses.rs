@@ -137,6 +137,7 @@ impl From<[u8; 40]> for FirmwareInfo {
     }
 }
 
+/// Connected network information
 //#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub struct ConnectionInfo {

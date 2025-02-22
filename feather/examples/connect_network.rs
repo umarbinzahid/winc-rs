@@ -49,7 +49,7 @@ fn program() -> Result<(), StackError> {
         }
 
         defmt::info!("Started, connecting to AP ..");
-        nb::block!(stack.connect_to_ap(ssid, password))?;
+        nb::block!(stack.connect_to_ap(ssid, password, false))?;
 
         defmt::info!(".. connected to AP, going to loop");
         loop {

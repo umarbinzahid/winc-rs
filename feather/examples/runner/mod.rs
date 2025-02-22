@@ -77,7 +77,7 @@ pub fn connect_and_run(
         let password = option_env!("TEST_PASSWORD").unwrap_or(DEFAULT_TEST_PASSWORD);
 
         delay_ms(50);
-        nb::block!(stack.connect_to_ap(ssid, password))?;
+        nb::block!(stack.connect_to_ap(ssid, password, false))?;
 
         defmt::info!("Network connected");
         for _ in 0..10 {

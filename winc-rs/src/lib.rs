@@ -12,17 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Winc Wifi library
+//! ATWINC1500 Wifi module library
 //!
-//! NOTE: This very much Work In Progress.
+//! NOTE: This very much Work In Progress
+//!
 //! The main entry point is [WincClient].
-//! Barebones [embedded_nal::TcpClientStack] and [embedded_nal::TcpClientStack]
-//! are there, but not well tested.
 //!
-//! The low-lever library is in internal `manager`` module, it's the part that
+//! The following traits are implemented:
+//!
+//! - [embedded_nal::TcpClientStack] and [embedded_nal::TcpFullStack]
+//! - [embedded_nal::UdpClientStack] and [embedded_nal::UdpFullStack]
+//! - [embedded_nal::Dns]
+//!
+//! [Examples are available](https://github.com/kaidokert/winc-rs/tree/main/feather/examples)
+//! for [Adafruit Feather M0 WiFi](https://www.adafruit.com/product/3010) board.
+//!
+//! The low-lever library is in the internal `manager` module, it's the part that
 //! wraps the HIF protocol and the chip registers.
 //!
-//! Connecting to AP, getting and IP, DNS lookups etc are implemented.
+//! Connecting to AP, getting an IP, DNS lookups etc are implemented.
 //!
 //! Basic usage:
 //! ```no_run
@@ -36,12 +44,15 @@
 //! // delay_fn: a callback function that lets the library wait
 //! let mut client = WincClient::new(spi, &mut delay_fn);
 //! nb::block!(client.start_wifi_module());
-//! nb::block!(client.connect_to_ap("ssid", "password"));
+//! nb::block!(client.connect_to_ap("ssid", "password", false));
 //! nb::block!(client.get_host_by_name("google.com", AddrType::IPv4));
 //! loop {
 //!     client.heartbeat(); // periodically poll the chip
 //! }
 //! ```
+//!
+//! Code reference for this implementation is the [Arduino/Atmel Wifi101 library](https://docs.arduino.cc/libraries/wifi101)
+//!
 #![no_std]
 
 #[cfg(feature = "std")]
@@ -53,12 +64,15 @@ pub(crate) use defmt::{debug, error, info, trace, warn};
 pub(crate) use log::{debug, error, info, trace, warn};
 
 mod client;
-pub mod errors;
+mod errors;
 mod manager;
-pub mod readwrite;
+mod readwrite;
 mod socket;
-pub mod transfer;
+mod transfer;
+pub use errors::Error as CommError;
+pub use transfer::Xfer as Transfer;
 
+pub use client::PingResult;
 pub use client::StackError;
 pub use client::WincClient;
 pub use manager::AuthType;
@@ -68,9 +82,9 @@ pub use manager::FirmwareInfo;
 // TODO: maybe don't expose this directly
 pub use manager::ScanResult;
 
-// TODO: None of this should be public
 pub use client::Handle;
 
+// TODO: Merge this into CommError
 #[derive(Debug, PartialEq)]
 pub enum StrError {
     Utf8Error(core::str::Utf8Error),

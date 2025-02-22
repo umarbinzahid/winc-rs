@@ -16,15 +16,13 @@ use crate::readwrite::{BufferOverflow, ReadExactError};
 use crate::StrError;
 use arrayvec::CapacityError;
 
+/// Low-level chip communication errors
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Failed,
     BufferError,
     VectorCapacityError,
-    UnexpectedValue,
-    UnexpectedByteAt(usize, u8),
-    ProtocolError(&'static str),
     // From where, which byte, expected, actual
     ProtocolByteError(&'static str, usize, u8, u8),
     ReadError,
@@ -32,7 +30,9 @@ pub enum Error {
     BufferReadError,
     UnexpectedAddressFamily, // AF wasn't set to AF_INET in response,
     Str(StrError),
+    /// Wifi module boot rom start failed
     BootRomStart,
+    /// Wifi module firmware failed to start
     FirmwareStart,
 }
 

@@ -4,11 +4,13 @@ use super::SocketError;
 
 use embedded_nal::nb;
 
+/// Stack errors
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 pub enum StackError {
     WouldBlock,
     GeneralTimeout,
+    /// TCP connection timed out
     ConnectTimeout,
     RecvTimeout,
     SendTimeout,
@@ -24,12 +26,19 @@ pub enum StackError {
     BindFailed(crate::errors::Error),
     WincWifiFail(crate::errors::Error),
     OpFailed(SocketError),
+    /// Logical error, an operation encountered
+    /// and unexpected state
     GlobalOpFailed,
+    /// DNS lookup timed out
     DnsTimeout,
+    /// Unexpected DNS error
     DnsFailed,
+    /// Operation was attempted in wrong state
     InvalidState,
     AlreadyConnected,
+    /// Acess point join failed
     ApJoinFailed(WifiConnError),
+    /// Scan operation failed
     ApScanFailed(WifiConnError),
 }
 

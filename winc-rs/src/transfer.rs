@@ -24,9 +24,12 @@ impl<U> ReadWrite for U where U: Read + Write {}
 ///
 /// There is an example SPI implementantion in demo crate.
 pub trait Xfer {
+    /// Receive data from the chip
     fn recv(&mut self, dest: &mut [u8]) -> Result<(), Error>;
+    /// Send data to the chip
     fn send(&mut self, src: &[u8]) -> Result<(), Error>;
-    // Optionally increase bus wait speed after initialization
+    /// Optionally reduce bus wait times after initialization.
+    /// This speeds up the overall communications
     fn switch_to_high_speed(&mut self) {}
 }
 

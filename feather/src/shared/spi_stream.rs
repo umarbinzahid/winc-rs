@@ -4,7 +4,7 @@ use defmt::trace;
 use hal::gpio::AnyPin;
 
 use hal::ehal::digital::OutputPin;
-use wincwifi::transfer::Xfer;
+use wincwifi::Transfer;
 
 use super::SpiBus;
 use core::mem::take;
@@ -47,21 +47,21 @@ impl<CS: AnyPin, Spi: SpiBus> SpiStream<CS, Spi> {
     }
 }
 
-impl<CS: AnyPin, Spi: SpiBus> Xfer for SpiStream<CS, Spi> {
-    fn recv(&mut self, dest: &mut [u8]) -> Result<(), wincwifi::errors::Error> {
+impl<CS: AnyPin, Spi: SpiBus> Transfer for SpiStream<CS, Spi> {
+    fn recv(&mut self, dest: &mut [u8]) -> Result<(), wincwifi::CommError> {
         self.transfer(dest)
-            .map_err(|_| wincwifi::errors::Error::ReadError)?;
+            .map_err(|_| wincwifi::CommError::ReadError)?;
         trace!("Stream: read {} {=[u8]:#x} bytes", dest.len(), dest);
         Ok(())
     }
 
-    fn send(&mut self, src: &[u8]) -> Result<(), wincwifi::errors::Error> {
+    fn send(&mut self, src: &[u8]) -> Result<(), wincwifi::CommError> {
         let mut tmp = [0; 256];
         let tmp_slice = &mut tmp[0..src.len()];
         tmp_slice.clone_from_slice(src);
         trace!("Stream: writing {=[u8]:#x} bytes", src);
         self.transfer(tmp_slice)
-            .map_err(|_| wincwifi::errors::Error::WriteError)?;
+            .map_err(|_| wincwifi::CommError::WriteError)?;
         Ok(())
     }
     fn switch_to_high_speed(&mut self) {

@@ -13,7 +13,7 @@ use crate::manager::SocketError;
 
 use crate::{debug, error, info};
 
-/// Handle to a socket. Returned by socket APIs
+/// Opaque handle to a socket. Returned by socket APIs
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Handle(u8);
@@ -113,6 +113,7 @@ struct SystemTime {
     second: u8,
 }
 
+/// Ping operation results
 #[derive(Debug)]
 pub struct PingResult {
     pub ip: Ipv4Addr,

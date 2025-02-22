@@ -103,15 +103,33 @@ impl<X: Xfer> WincClient<'_, X> {
         }
     }
 
+    /// Connect to access point with previously saved credentials
     pub fn connect_to_saved_ap(&mut self) -> nb::Result<(), StackError> {
         self.connect_to_ap_impl(|inner_self: &mut Self| inner_self.manager.send_default_connect())
     }
 
-    pub fn connect_to_ap(&mut self, ssid: &str, password: &str) -> nb::Result<(), StackError> {
+    /// Connect to access point with given SSID and password, with WPA2 security
+    ///
+    /// # Arguments
+    ///
+    /// * `ssid` - The SSID of the access point to connect to.
+    /// * `password` - The password of the access point to connect to.
+    /// * `save_credentials` - Whether to save the credentials to the module.
+    ///
+    pub fn connect_to_ap(
+        &mut self,
+        ssid: &str,
+        password: &str,
+        save_credentials: bool,
+    ) -> nb::Result<(), StackError> {
         self.connect_to_ap_impl(|inner_self: &mut Self| {
-            inner_self
-                .manager
-                .send_connect(AuthType::WpaPSK, ssid, password, 0xFF, false)
+            inner_self.manager.send_connect(
+                AuthType::WpaPSK,
+                ssid,
+                password,
+                0xFF,
+                !save_credentials,
+            )
         })
     }
 
@@ -358,7 +376,7 @@ mod tests {
             callbacks.on_connstate_changed(WifiConnState::Connected, WifiConnError::Unhandled);
         };
         client.debug_callback = Some(&mut my_debug);
-        let result = nb::block!(client.connect_to_ap("test", "test"));
+        let result = nb::block!(client.connect_to_ap("test", "test", false));
         assert_eq!(result, Ok(()));
     }
 
