@@ -65,7 +65,7 @@ fn program() -> Result<(), StackError> {
 #[cortex_m_rt::entry]
 fn main() -> ! {
     if let Err(err) = program() {
-        defmt::info!("Bad error {}", err);
+        defmt::error!("Error: {}", err);
         panic!("Error in main program");
     } else {
         defmt::info!("Good exit")

@@ -74,4 +74,12 @@ mod tests {
         let mut client = make_test_client(&mut delay);
         let _ = client.get_host_by_name("example.com", AddrType::IPv6);
     }
+
+    #[test]
+    #[should_panic]
+    fn test_get_host_by_address() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let _ = client.get_host_by_address(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), &mut [0; 4]);
+    }
 }

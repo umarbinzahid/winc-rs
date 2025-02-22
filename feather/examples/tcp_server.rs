@@ -36,7 +36,7 @@ fn main() -> ! {
             Ok(())
         },
     ) {
-        defmt::info!("Something went wrong {}", something)
+        defmt::error!("Something went wrong {}", something)
     } else {
         defmt::info!("Good exit")
     };

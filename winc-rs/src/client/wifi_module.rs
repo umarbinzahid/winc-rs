@@ -441,7 +441,6 @@ mod tests {
         let mut delay = |_| {};
         let mut client = make_test_client(&mut delay);
         client.callbacks.state = WifiModuleState::Started;
-        let result = client.send_ping(Ipv4Addr::new(192, 168, 1, 1), 64, 1);
         let mut my_debug = |callbacks: &mut SocketCallbacks| {
             callbacks.on_ping(
                 Ipv4Addr::new(192, 168, 1, 1),

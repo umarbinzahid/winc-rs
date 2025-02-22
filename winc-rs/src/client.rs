@@ -225,14 +225,8 @@ impl EventListener for SocketCallbacks {
             Ipv4AddrFormatWrapper::new(&ip),
             host
         );
-
-        let Some(op) = self.global_op else {
-            error!("UNKNOWN on_resolve: host:{:?}", host);
-            return;
-        };
-
-        match op {
-            GlobalOp::GetHostByName => {
+        match self.global_op {
+            Some(GlobalOp::GetHostByName) => {
                 debug!(
                     "on_resolve: ip:{:?} host:{:?}",
                     Ipv4AddrFormatWrapper::new(&ip),
@@ -241,8 +235,11 @@ impl EventListener for SocketCallbacks {
                 self.last_recv_addr = Some(core::net::SocketAddrV4::new(ip, 0));
                 self.global_op = None; // ends polling
             }
-            _ => {
+            Some(op) => {
                 error!("UNKNOWN on_resolve: host: {} state:{:?}", host, op);
+            }
+            _ => {
+                error!("UNKNOWN on_resolve: host: {}", host);
             }
         }
     }
@@ -265,7 +262,7 @@ impl EventListener for SocketCallbacks {
                 }
                 _ => {
                     self.state = WifiModuleState::ConnectionFailed;
-                    error!(
+                    debug!(
                         "on_connstate_changed FAILED: {:?} {:?}",
                         self.connection_state.conn_state, self.connection_state.conn_error
                     );
@@ -337,6 +334,7 @@ impl EventListener for SocketCallbacks {
         self.connection_state.ping_result = Some(Some(ping_result));
     }
 
+    // todo: Consolidate the error cases to match statements below
     fn on_connect(&mut self, socket: Socket, err: crate::manager::SocketError) {
         debug!("on_connect: socket {:?}", socket);
 
@@ -612,10 +610,6 @@ impl<'a, X: Xfer> WincClient<'a, X> {
     pub fn new(transfer: X, delay: &'a mut impl FnMut(u32)) -> Self {
         let manager = Manager::from_xfer(transfer);
         Self::new_internal(manager, delay)
-    }
-    #[cfg(test)]
-    pub fn unwrap(self) -> Manager<X> {
-        self.manager
     }
     fn new_internal(manager: Manager<X>, delay: &'a mut impl FnMut(u32)) -> Self {
         Self {

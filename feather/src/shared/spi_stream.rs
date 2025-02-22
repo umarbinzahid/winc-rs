@@ -10,7 +10,7 @@ use super::SpiBus;
 use core::mem::take;
 
 const DEFAULT_WAIT_CYCLES: u32 = 16_000; // hand tested :)
-const FAST_WAIT_CYCLES: u32 = 500; // hand tested :)
+const FAST_WAIT_CYCLES: u32 = 500; // ditto
 
 pub struct SpiStream<CS: AnyPin, Spi: SpiBus> {
     cs: Option<CS>,

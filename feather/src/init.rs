@@ -15,8 +15,8 @@ use hal::prelude::*;
 
 use super::shared::SpiBus;
 
-// Set SPI bus to 8 Mhz, about as fast as it goes
-const SPI_MHZ: u32 = 8;
+// Set SPI bus to 4 Mhz, about as fast as it goes
+const SPI_MHZ: u32 = 4;
 
 use cortex_m_systick_countdown::{PollingSysTick, SysTickCalibration};
 

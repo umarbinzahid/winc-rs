@@ -43,7 +43,7 @@ where
 #[cortex_m_rt::entry]
 fn main() -> ! {
     if let Err(something) = connect_and_run(
-        "Hello,dns client",
+        "Hello, DNS client",
         ClientType::Dns,
         |stack: ReturnClient| -> Result<(), StackError> {
             if let ReturnClient::Dns(stack) = stack {
@@ -53,7 +53,7 @@ fn main() -> ! {
             Ok(())
         },
     ) {
-        defmt::info!("Something went wrong {}", something)
+        defmt::error!("Something went wrong {}", something)
     } else {
         defmt::info!("Good exit")
     };
