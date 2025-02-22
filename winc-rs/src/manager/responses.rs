@@ -33,8 +33,8 @@ const AF_INET: u16 = 2;
 
 use crate::socket::Socket;
 
-type HostName = ArrayString<64>;
-type Ssid = ArrayString<33>;
+pub(crate) type HostName = ArrayString<64>;
+pub(crate) type Ssid = ArrayString<33>;
 
 fn read32be<'a>(v: &mut &[u8]) -> Result<u32, ErrType<'a>> {
     let mut arr = [0u8; 4];

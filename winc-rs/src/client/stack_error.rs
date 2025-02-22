@@ -5,7 +5,7 @@ use super::SocketError;
 use embedded_nal::nb;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StackError {
     WouldBlock,
     GeneralTimeout,

@@ -49,14 +49,6 @@ pub(crate) trait Read {
 pub(crate) trait Write {
     type WriteError;
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError>;
-    #[allow(dead_code)]
-    fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Self::WriteError> {
-        while !buf.is_empty() {
-            let len = self.write(buf)?;
-            buf = &buf[len..];
-        }
-        Ok(())
-    }
 }
 
 impl Read for &[u8] {

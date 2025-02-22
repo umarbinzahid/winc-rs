@@ -36,6 +36,9 @@ pub use responses::{ConnectionInfo, ScanResult};
 
 use core::net::{Ipv4Addr, SocketAddrV4};
 
+#[cfg(test)]
+pub(crate) use responses::Ssid;
+
 pub use responses::FirmwareInfo;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -157,12 +160,15 @@ impl Default for BootState {
     }
 }
 impl<X: Xfer> Manager<X> {
-    // Todo: provide a version without listener, defaulting to as stub
     pub fn from_xfer(xfer: X) -> Self {
         Self {
             not_a_reg_ctrl_4_dma: 0xbf0000,
             chip: ChipAccess::new(xfer),
         }
+    }
+    #[cfg(test)]
+    pub fn set_unit_test_mode(&mut self) {
+        self.chip.set_unit_test_mode();
     }
 
     pub fn set_crc_state(&mut self, value: bool) {
@@ -203,8 +209,7 @@ impl<X: Xfer> Manager<X> {
         // read CLOCKS_EN_REG, check for bit 2
     }
 
-    // This is a re-write of the old start functions below
-    pub fn boot_the_chip(&mut self, state: &mut BootState) -> Result<bool, Error> {
+    pub(crate) fn boot_the_chip(&mut self, state: &mut BootState) -> Result<bool, Error> {
         const MAX_LOOPS: u32 = 10;
         const FINISH_BOOT_ROM: u32 = 0x10add09e;
         debug!("Waiting for chip start .. stage: {:?}", state.stage);
@@ -217,7 +222,7 @@ impl<X: Xfer> Manager<X> {
             }
             BootStage::StartBootrom => {
                 if state.loop_value >= MAX_LOOPS {
-                    return Err(Error::BootRoomStart);
+                    return Err(Error::BootRomStart);
                 }
                 let efuse = self.chip.single_reg_read(Regs::EFuseRead.into())? & 0x80000000;
                 if efuse != 0 {
@@ -235,7 +240,7 @@ impl<X: Xfer> Manager<X> {
             }
             BootStage::Stage3 => {
                 if state.loop_value >= MAX_LOOPS {
-                    return Err(Error::BootRoomStart);
+                    return Err(Error::BootRomStart);
                 }
                 let host_wait = self.chip.single_reg_read(Regs::BootRom.into())?;
                 if host_wait == FINISH_BOOT_ROM {

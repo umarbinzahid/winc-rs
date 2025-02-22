@@ -6,3 +6,4 @@ Cargo.lock
 .vscode/settings.json
 feather/.vscode/settings.json
 nodefmt/
+winc-rs/tarpaulin-report.html

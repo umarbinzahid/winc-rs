@@ -32,7 +32,7 @@ pub enum Error {
     BufferReadError,
     UnexpectedAddressFamily, // AF wasn't set to AF_INET in response,
     Str(StrError),
-    BootRoomStart,
+    BootRomStart,
     FirmwareStart,
 }
 

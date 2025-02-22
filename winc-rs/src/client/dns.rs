@@ -39,3 +39,39 @@ impl<X: Xfer> Dns for WincClient<'_, X> {
         unimplemented!("The Winc1500 stack does not support get_host_by_address()");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{client::SocketCallbacks, manager::EventListener};
+    use core::net::Ipv4Addr;
+
+    use crate::client::test_shared::*;
+    use embedded_nal::Dns;
+
+    #[test]
+    fn test_get_host_by_name_success() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_resolve(Ipv4Addr::new(127, 0, 0, 1), "");
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = client.get_host_by_name("example.com", AddrType::IPv4);
+        assert_eq!(result.ok(), Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+    #[test]
+    fn test_get_host_by_name_timeout() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let result = client.get_host_by_name("example.com", AddrType::IPv4);
+        assert_eq!(result.err(), Some(StackError::DnsTimeout.into()));
+    }
+    #[test]
+    #[should_panic]
+    fn test_get_host_by_name_unsupported_addr_type() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let _ = client.get_host_by_name("example.com", AddrType::IPv6);
+    }
+}

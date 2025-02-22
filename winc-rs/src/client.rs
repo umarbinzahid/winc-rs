@@ -584,6 +584,9 @@ pub struct WincClient<'a, X: Xfer> {
     // TODO: Lets change that per socket
     last_send_addr: Option<core::net::SocketAddrV4>,
     boot: Option<crate::manager::BootState>,
+    operation_countdown: u32,
+    #[cfg(test)]
+    debug_callback: Option<&'a mut dyn FnMut(&mut SocketCallbacks)>,
 }
 
 impl<'a, X: Xfer> WincClient<'a, X> {
@@ -610,6 +613,10 @@ impl<'a, X: Xfer> WincClient<'a, X> {
         let manager = Manager::from_xfer(transfer);
         Self::new_internal(manager, delay)
     }
+    #[cfg(test)]
+    pub fn unwrap(self) -> Manager<X> {
+        self.manager
+    }
     fn new_internal(manager: Manager<X>, delay: &'a mut impl FnMut(u32)) -> Self {
         Self {
             manager,
@@ -620,6 +627,9 @@ impl<'a, X: Xfer> WincClient<'a, X> {
             next_session_id: 0,
             last_send_addr: None,
             boot: None,
+            operation_countdown: 0,
+            #[cfg(test)]
+            debug_callback: None,
         }
     }
     fn get_next_session_id(&mut self) -> u16 {
@@ -628,6 +638,10 @@ impl<'a, X: Xfer> WincClient<'a, X> {
         ret
     }
     fn dispatch_events(&mut self) -> Result<(), StackError> {
+        #[cfg(test)]
+        if let Some(callback) = &mut self.debug_callback {
+            callback(&mut self.callbacks);
+        }
         self.manager
             .dispatch_events_new(&mut self.callbacks)
             .map_err(StackError::DispatchError)
@@ -752,6 +766,34 @@ impl<'a, X: Xfer> WincClient<'a, X> {
                 e
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod test_shared {
+    use super::*;
+
+    pub(crate) struct MockTransfer {}
+
+    impl Default for MockTransfer {
+        fn default() -> Self {
+            Self {}
+        }
+    }
+
+    impl Xfer for MockTransfer {
+        fn recv(&mut self, _: &mut [u8]) -> Result<(), crate::errors::Error> {
+            Ok(())
+        }
+        fn send(&mut self, _: &[u8]) -> Result<(), crate::errors::Error> {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn make_test_client(delay: &mut impl FnMut(u32)) -> WincClient<MockTransfer> {
+        let mut client = WincClient::new(MockTransfer::default(), delay);
+        client.manager.set_unit_test_mode();
+        client
     }
 }
 

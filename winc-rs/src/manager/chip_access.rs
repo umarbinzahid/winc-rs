@@ -63,6 +63,13 @@ impl<X: Xfer> ChipAccess<X> {
             verify: true,
         }
     }
+    #[cfg(test)]
+    pub fn set_unit_test_mode(&mut self) {
+        self.crc = false;
+        self.verify = false;
+        self.check_crc = false;
+    }
+
     fn protocol_verify(
         &mut self,
         msg: &'static str,

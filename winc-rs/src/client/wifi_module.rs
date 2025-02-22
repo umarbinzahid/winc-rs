@@ -9,6 +9,9 @@ use super::Xfer;
 
 use crate::info;
 
+// 1 minute max, if no other delays are added
+const AP_CONNECT_TIMEOUT_MILLISECONDS: u32 = 60_000;
+
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum WifiModuleState {
@@ -76,12 +79,18 @@ impl<X: Xfer> WincClient<'_, X> {
                 Err(nb::Error::Other(StackError::InvalidState))
             }
             WifiModuleState::Started => {
+                self.operation_countdown = AP_CONNECT_TIMEOUT_MILLISECONDS;
                 self.callbacks.state = WifiModuleState::ConnectingToAp;
                 connect_fn(self).map_err(|x| nb::Error::Other(StackError::WincWifiFail(x)))?;
                 Err(nb::Error::WouldBlock)
             }
             WifiModuleState::ConnectingToAp => {
+                (self.delay)(1); // absolute minimum delay to make timeout possible
                 self.dispatch_events()?;
+                self.operation_countdown -= 1;
+                if self.operation_countdown == 0 {
+                    return Err(nb::Error::Other(StackError::GeneralTimeout));
+                }
                 Err(nb::Error::WouldBlock)
             }
             WifiModuleState::ConnectionFailed => Err(nb::Error::Other(StackError::ApJoinFailed(
@@ -265,5 +274,187 @@ impl<X: Xfer> WincClient<'_, X> {
 
         self.dispatch_events()?;
         Err(nb::Error::WouldBlock)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::net::Ipv4Addr;
+
+    use super::*;
+    use crate::client::{test_shared::*, SocketCallbacks};
+    //use crate::manager::Error::BootRomStart;
+    use crate::errors::Error;
+    use crate::manager::Ssid;
+    use crate::manager::{EventListener, PingError, WifiConnError, WifiConnState};
+    use crate::ConnectionInfo;
+
+    #[test]
+    fn test_heartbeat() {
+        let mut delay = |_| {};
+        assert_eq!(make_test_client(&mut delay).heartbeat(), Ok(()));
+    }
+
+    #[test]
+    fn test_start_wifi_module() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let result = nb::block!(client.start_wifi_module());
+        assert_eq!(
+            result,
+            Err(StackError::WincWifiFail(Error::BootRomStart).into())
+        );
+    }
+
+    #[test]
+    fn test_connect_to_saved_ap_invalid_state() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let result = nb::block!(client.connect_to_saved_ap());
+        assert_eq!(result, Err(StackError::InvalidState));
+    }
+    #[test]
+    fn test_connect_to_saved_ap_timeout() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let result = nb::block!(client.connect_to_saved_ap());
+        assert_eq!(result, Err(StackError::GeneralTimeout));
+    }
+    #[test]
+    fn test_connect_to_saved_ap_success() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_connstate_changed(WifiConnState::Connected, WifiConnError::Unhandled);
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.connect_to_saved_ap());
+        assert_eq!(result, Ok(()));
+    }
+    #[test]
+    fn test_connect_to_saved_ap_invalid_credentials() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_connstate_changed(WifiConnState::Disconnected, WifiConnError::AuthFail);
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.connect_to_saved_ap());
+        assert_eq!(
+            result,
+            Err(StackError::ApJoinFailed(WifiConnError::AuthFail))
+        );
+    }
+
+    #[test]
+    fn test_connect_to_ap_success() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_connstate_changed(WifiConnState::Connected, WifiConnError::Unhandled);
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.connect_to_ap("test", "test"));
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn test_scan_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_scan_done(5, WifiConnError::Unhandled);
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.scan());
+        assert_eq!(result, Ok(5));
+    }
+
+    #[test]
+    fn test_get_scan_result_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_scan_result(ScanResult {
+                index: 0,
+                rssi: 0,
+                auth: AuthType::Open,
+                channel: 0,
+                bssid: [0; 6],
+                ssid: Ssid::from("test").unwrap(),
+            });
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.get_scan_result(0));
+        assert_eq!(result.unwrap().ssid, Ssid::from("test").unwrap());
+    }
+
+    #[test]
+    fn test_get_current_rssi_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_rssi(0);
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.get_current_rssi());
+        assert_eq!(result, Ok(0));
+    }
+
+    #[test]
+    fn test_get_connection_info_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_connection_info(ConnectionInfo {
+                ssid: Ssid::from("test").unwrap(),
+                auth: AuthType::Open,
+                ip: Ipv4Addr::new(192, 168, 1, 1),
+                mac: [0; 6],
+                rssi: 0,
+            });
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.get_connection_info());
+        assert_eq!(result.unwrap().ssid, Ssid::from("test").unwrap());
+    }
+
+    #[test]
+    fn test_get_firmware_version_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let result = client.get_firmware_version();
+        assert_eq!(result.unwrap().chip_id, 0);
+    }
+
+    #[test]
+    fn test_send_ping_ok() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        client.callbacks.state = WifiModuleState::Started;
+        let result = client.send_ping(Ipv4Addr::new(192, 168, 1, 1), 64, 1);
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_ping(
+                Ipv4Addr::new(192, 168, 1, 1),
+                0,
+                42,
+                0,
+                0,
+                PingError::Unhandled,
+            );
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.send_ping(Ipv4Addr::new(192, 168, 1, 1), 64, 1));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().rtt, 42);
     }
 }
