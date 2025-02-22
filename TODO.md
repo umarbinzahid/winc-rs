@@ -18,7 +18,7 @@
 - [x] Get github checks properly running
 - [x] Add badges
 - Add Station mode
-- Add missing coverage
+- [x] Add missing coverage
 - [ ] Implement an async version of this
 - Implement missing SSL stuff
 - Implement firmware update
