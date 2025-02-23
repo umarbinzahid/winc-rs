@@ -1,3 +1,5 @@
+//! A simple UDP server that listens for incoming packets
+
 #![no_main]
 #![no_std]
 #![allow(unused_imports)]
@@ -23,7 +25,7 @@ fn main() -> ! {
     if let Err(something) = connect_and_run(
         "Hello, UDP server",
         ClientType::UdpFull,
-        |stack: ReturnClient| -> Result<(), StackError> {
+        |stack: ReturnClient, _: core::net::Ipv4Addr| -> Result<(), StackError> {
             if let ReturnClient::UdpFull(stack) = stack {
                 let test_port = option_env!("TEST_PORT").unwrap_or(DEFAULT_TEST_PORT);
                 let port = u16::from_str(test_port).unwrap_or(12345);

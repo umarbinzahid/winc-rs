@@ -1,3 +1,7 @@
+//! Make a very basic HTTP get request
+//!
+//! IP, port, and hostname are passed as env vars at build time
+
 #![no_main]
 #![no_std]
 
@@ -23,7 +27,7 @@ fn main() -> ! {
     if let Err(something) = connect_and_run(
         "Hello HTTP client",
         ClientType::Tcp,
-        |stack: ReturnClient| -> Result<(), StackError> {
+        |stack: ReturnClient, _: core::net::Ipv4Addr| -> Result<(), StackError> {
             if let ReturnClient::Tcp(stack) = stack {
                 let test_ip = option_env!("TEST_IP").unwrap_or(DEFAULT_TEST_IP);
                 let ip_values: [u8; 4] = parse_ip_octets(test_ip);

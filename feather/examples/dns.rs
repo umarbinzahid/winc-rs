@@ -1,3 +1,6 @@
+//! Demonstrate a DNS lookup
+//!
+
 #![no_main]
 #![no_std]
 #![allow(unused_imports)]
@@ -45,7 +48,7 @@ fn main() -> ! {
     if let Err(something) = connect_and_run(
         "Hello, DNS client",
         ClientType::Dns,
-        |stack: ReturnClient| -> Result<(), StackError> {
+        |stack: ReturnClient, _: core::net::Ipv4Addr| -> Result<(), StackError> {
             if let ReturnClient::Dns(stack) = stack {
                 let host = option_env!("TEST_HOST").unwrap_or(DEFAULT_TEST_HOST);
                 dns_client(stack, host)?;
