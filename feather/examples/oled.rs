@@ -1,5 +1,7 @@
-//! A mandatory blinky to verify the board is working
-
+//! Demonstrates the OLED display
+//!
+//! https://www.adafruit.com/product/2900
+//!
 #![no_main]
 #![no_std]
 

@@ -1,3 +1,6 @@
+//! Demonstrates a telnet shell
+//!
+//! Starts a stub command shell on default telnet port 23
 #![no_main]
 #![no_std]
 

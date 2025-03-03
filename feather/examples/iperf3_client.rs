@@ -1,3 +1,7 @@
+//! Demonstrates the iperf3 client
+//!
+//! Run this against a `iperf3 -s` server somewhere
+//!
 #![no_main]
 #![no_std]
 #![allow(unused_imports)]
@@ -166,7 +170,6 @@ where
     Ok(())
 }
 
-// Todo: embedded-nal iperf3
 #[cortex_m_rt::entry]
 fn main() -> ! {
     if let Err(err) = program() {
