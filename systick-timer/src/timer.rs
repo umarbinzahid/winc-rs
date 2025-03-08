@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 use core::sync::atomic::{AtomicU32, Ordering};
 
 /// A 64-bit timer based on SysTick.
