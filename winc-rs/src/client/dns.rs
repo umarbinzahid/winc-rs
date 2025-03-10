@@ -1,9 +1,9 @@
 use core::net::IpAddr;
+use core::net::Ipv4Addr;
+use embedded_nal::nb;
 use embedded_nal::AddrType;
 use embedded_nal::Dns;
 
-use super::GenResult;
-use super::GlobalOp;
 use super::StackError;
 use crate::transfer::Xfer;
 use crate::WincClient;
@@ -16,21 +16,35 @@ impl<X: Xfer> Dns for WincClient<'_, X> {
         hostname: &str,
         addr_type: AddrType,
     ) -> embedded_nal::nb::Result<IpAddr, Self::Error> {
-        if addr_type != AddrType::IPv4 {
-            unimplemented!("IPv6 not supported");
+        match &mut self.callbacks.dns_resolved_addr {
+            None => {
+                if addr_type != AddrType::IPv4 {
+                    unimplemented!("IPv6 not supported");
+                }
+                self.dispatch_events()?;
+                self.manager
+                    .send_gethostbyname(hostname)
+                    .map_err(StackError::WincWifiFail)?;
+                // Signal operation in progress
+                self.operation_countdown = Self::DNS_TIMEOUT;
+                self.callbacks.dns_resolved_addr = Some(None);
+            }
+            Some(result) => {
+                if let Some(ip) = result.take() {
+                    self.callbacks.dns_resolved_addr = None;
+                    if ip == Ipv4Addr::new(0, 0, 0, 0) {
+                        return Err(StackError::DnsFailed.into());
+                    }
+                    return Ok(IpAddr::V4(ip));
+                }
+                self.operation_countdown -= 1;
+                if self.operation_countdown == 0 {
+                    return Err(nb::Error::Other(StackError::DnsTimeout));
+                }
+            }
         }
-        // Todo: this global_op isn't necessary at all, just use `last_recv_addr`
-        // for passing state back from the callback
-        self.callbacks.global_op = Some(GlobalOp::GetHostByName);
-        self.manager
-            .send_gethostbyname(hostname)
-            .map_err(|_x| StackError::GlobalOpFailed)?;
-        let res = self.wait_for_gen_ack(GlobalOp::GetHostByName, Self::DNS_TIMEOUT)?;
-
-        if let GenResult::Ip(ip) = res {
-            return Ok(IpAddr::V4(ip));
-        }
-        Err(StackError::DnsFailed.into())
+        self.dispatch_events()?;
+        Err(nb::Error::WouldBlock)
     }
 
     fn get_host_by_address(
@@ -59,16 +73,28 @@ mod tests {
             callbacks.on_resolve(Ipv4Addr::new(127, 0, 0, 1), "");
         };
         client.debug_callback = Some(&mut my_debug);
-        let result = client.get_host_by_name("example.com", AddrType::IPv4);
+        let result = nb::block!(client.get_host_by_name("example.com", AddrType::IPv4));
         assert_eq!(result.ok(), Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
     }
     #[test]
     fn test_get_host_by_name_timeout() {
         let mut delay = |_| {};
         let mut client = make_test_client(&mut delay);
-        let result = client.get_host_by_name("example.com", AddrType::IPv4);
+        let result = nb::block!(client.get_host_by_name("example.com", AddrType::IPv4));
         assert_eq!(result.err(), Some(StackError::DnsTimeout.into()));
     }
+    #[test]
+    fn test_get_host_by_name_failed() {
+        let mut delay = |_| {};
+        let mut client = make_test_client(&mut delay);
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_resolve(Ipv4Addr::new(0, 0, 0, 0), "");
+        };
+        client.debug_callback = Some(&mut my_debug);
+        let result = nb::block!(client.get_host_by_name("nonexistent.com", AddrType::IPv4));
+        assert_eq!(result.err(), Some(StackError::DnsFailed.into()));
+    }
+
     #[test]
     #[should_panic]
     fn test_get_host_by_name_unsupported_addr_type() {
