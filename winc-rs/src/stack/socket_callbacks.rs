@@ -104,16 +104,8 @@ pub(crate) struct SocketCallbacks {
     // #define UDP_SOCK_MAX										4
     pub udp_sockets: SockHolder<MAX_UDP_SOCKETS, UDP_SOCK_OFFSET>,
     // Needed to keep track of connect() and recvfrom address
-    pub udp_sockets_addr: [Option<core::net::SocketAddrV4>; MAX_UDP_SOCKETS],
     pub udp_socket_connect_addr: [Option<core::net::SocketAddrV4>; MAX_UDP_SOCKETS],
     pub recv_buffer: [u8; SOCKET_BUFFER_MAX_LENGTH],
-
-    // All this should be moved into an enum rather, these are response
-    // callbacks, mutually exclusive
-    // Todo: make this per socket
-    pub recv_len: usize,
-    // Todo: Make this per socket
-    pub last_error: crate::manager::SocketError,
 
     // This is global
     pub dns_resolved_addr: Option<Option<core::net::Ipv4Addr>>,
@@ -125,6 +117,34 @@ pub(crate) struct SocketCallbacks {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct ConnectResult {
     pub error: SocketError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct SendRequest {
+    pub offset: usize,
+    pub grand_total_sent: i16,
+    pub total_sent: i16,
+    pub remaining: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RecvResult {
+    pub recv_len: usize,
+    pub from_addr: core::net::SocketAddrV4,
+    pub error: SocketError,
+}
+#[cfg(feature = "defmt")]
+impl defmt::Format for RecvResult {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "recv_len: {}, from_addr: {:?}, error: {}",
+            self.recv_len,
+            Ipv4AddrFormatWrapper::new(self.from_addr.ip()),
+            self.error
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -158,10 +178,12 @@ pub enum ClientSocketOp {
     None,
     New,
     Connect((u32, Option<ConnectResult>)),
-    Send(i16),
-    SendTo(i16),
-    Recv,
-    RecvFrom,
+    // Request tracking offset and remaining, final value
+    // is whatever is returned by callback
+    Send(SendRequest, Option<i16>),
+    SendTo(SendRequest, Option<i16>),
+    Recv(Option<RecvResult>),
+    RecvFrom(Option<RecvResult>),
     Bind(Option<BindListenResult>),
     Listen(Option<BindListenResult>),
     Accept(Option<AcceptResult>),
@@ -172,11 +194,8 @@ impl SocketCallbacks {
         Self {
             tcp_sockets: SockHolder::new(),
             udp_sockets: SockHolder::new(),
-            udp_sockets_addr: [None; MAX_UDP_SOCKETS],
             udp_socket_connect_addr: [None; MAX_UDP_SOCKETS],
             recv_buffer: [0; SOCKET_BUFFER_MAX_LENGTH],
-            recv_len: 0,
-            last_error: crate::manager::SocketError::NoError,
             dns_resolved_addr: None,
             connection_state: ConnectionState::new(),
             state: WifiModuleState::Reset,
@@ -318,57 +337,48 @@ impl EventListener for SocketCallbacks {
     }
     fn on_send_to(&mut self, socket: Socket, len: i16) {
         debug!("on_send_to: socket:{:?} length:{:?}", socket, len);
-        if let Some((s, op)) = self.resolve(socket) {
-            match op {
-                ClientSocketOp::SendTo(req_len) => {
-                    if len >= *req_len {
-                        debug!("FIN: on_send_to: socket:{:?} length:{:?}", socket, len);
-                        *op = ClientSocketOp::None;
-                    } else {
-                        debug!("CONT: on_send_to: socket:{:?} length:{:?}", socket, len);
-                        *req_len -= len;
-                    }
-                }
-                _ => {
-                    error!(
-                        "UNKNOWN STATE on_send_to (x): socket:{:?} len:{:?} state:{:?}",
-                        s, len, *op
-                    );
+        match self.resolve(socket) {
+            Some((s, ClientSocketOp::SendTo(req, option))) => {
+                req.total_sent += len;
+                req.remaining -= len;
+                if req.remaining <= 0 {
+                    debug!("FIN: on_send: socket:{:?} length:{:?}", s, len);
+                    option.replace(len);
+                } else {
+                    debug!("CONT: on_send: socket:{:?} length:{:?}", s, len);
                 }
             }
-        } else {
-            error!(
-                "UNKNOWN STATE on_send_to (x): socket:{:?} len:{:?}",
+            Some((s, op)) => error!(
+                "UNKNOWN STATE on_send (x): socket:{:?} len:{:?} state:{:?}",
+                s, len, *op
+            ),
+            None => error!(
+                "on_send (x): COULD NOT FIND SOCKET socket:{:?} len:{:?}",
                 socket, len
-            );
+            ),
         }
     }
     fn on_send(&mut self, socket: Socket, len: i16) {
         debug!("on_send: socket {:?} len:{}", socket, len);
-
-        if let Some((s, op)) = self.resolve(socket) {
-            match op {
-                ClientSocketOp::Send(req_len) => {
-                    if len >= *req_len {
-                        debug!("FIN: on_send: socket:{:?} length:{:?}", socket, len);
-                        *op = ClientSocketOp::None;
-                    } else {
-                        debug!("CONT: on_send: socket:{:?} length:{:?}", socket, len);
-                        *req_len -= len;
-                    }
-                }
-                _ => {
-                    error!(
-                        "UNKNOWN STATE on_send (x): socket:{:?} len:{:?} state:{:?}",
-                        s, len, *op
-                    );
+        match self.resolve(socket) {
+            Some((s, ClientSocketOp::Send(req, option))) => {
+                req.total_sent += len;
+                req.remaining -= len;
+                if req.remaining <= 0 {
+                    debug!("FIN: on_send: socket:{:?} length:{:?}", s, len);
+                    option.replace(len);
+                } else {
+                    debug!("CONT: on_send: socket:{:?} length:{:?}", s, len);
                 }
             }
-        } else {
-            error!(
+            Some((s, op)) => error!(
+                "UNKNOWN STATE on_send (x): socket:{:?} len:{:?} state:{:?}",
+                s, len, *op
+            ),
+            None => error!(
                 "on_send (x): COULD NOT FIND SOCKET socket:{:?} len:{:?}",
                 socket, len
-            );
+            ),
         }
     }
     fn on_recv(
@@ -379,9 +389,8 @@ impl EventListener for SocketCallbacks {
         err: crate::manager::SocketError,
     ) {
         debug!("on_recv: socket {:?}", socket);
-        let mut found = false;
-        if let Some((s, op)) = self.resolve(socket) {
-            if *op == ClientSocketOp::Recv {
+        match self.resolve(socket) {
+            Some((s, ClientSocketOp::Recv(option))) => {
                 debug!(
                     "on_recv: socket:{:?} address:{:?} data:{:?} len:{:?} error:{:?}",
                     s,
@@ -390,33 +399,27 @@ impl EventListener for SocketCallbacks {
                     data.len(),
                     err
                 );
-                *op = ClientSocketOp::None;
-                found = true;
-            } else {
-                error!(
-                    "UNKNOWN on_recv: socket:{:?} address:{:?} port:{:?} data:{:?} len:{:?} error:{:?}",
-                    socket,
-                    Ipv4AddrFormatWrapper::new(address.ip()),
-                    address.port(),
-                    data,
-                    data.len(),
-                    err
-                );
+                option.replace(RecvResult {
+                    recv_len: data.len(),
+                    from_addr: address,
+                    error: err,
+                });
+                self.recv_buffer[..data.len()].copy_from_slice(data);
             }
-        } else {
-            error!(
-                "UNKNOWN on_recv: socket:{:?} address:{:?} port:{:?} data:{:?} error:{:?}",
+            Some((_, op)) => error!(
+                "Socket NOT in recv: socket:{:?} address:{:?} data:{:?} error:{:?} actual state:{:?}",
                 socket,
                 Ipv4AddrFormatWrapper::new(address.ip()),
-                address.port(),
+                data,
+                err, op
+            ),
+            None => error!(
+                "UNKNOWN on_recv: socket:{:?} address:{:?} data:{:?} error:{:?}",
+                socket,
+                Ipv4AddrFormatWrapper::new(address.ip()),
                 data,
                 err
-            );
-        }
-        if found {
-            self.recv_buffer[..data.len()].copy_from_slice(data);
-            self.recv_len = data.len();
-            self.last_error = err;
+            ),
         }
     }
     fn on_recvfrom(
@@ -427,9 +430,8 @@ impl EventListener for SocketCallbacks {
         err: crate::manager::SocketError,
     ) {
         debug!("on_recvfrom: socket {:?}", socket);
-        let mut found = false;
-        if let Some((s, op)) = self.resolve(socket) {
-            if *op == ClientSocketOp::RecvFrom {
+        match self.resolve(socket) {
+            Some((s, ClientSocketOp::RecvFrom(option))) => {
                 debug!(
                     "on_recvfrom: raw:{:?} socket:{:?} address:{:?} data:{:?} error:{:?}",
                     socket,
@@ -438,32 +440,28 @@ impl EventListener for SocketCallbacks {
                     data,
                     err
                 );
-                *op = ClientSocketOp::None;
-                self.last_error = err;
-                found = true;
-            } else {
-                error!(
-                    "UNKNOWN on_recvfrom: socket:{:?} address:{:?} data:{:?} error:{:?}",
-                    socket,
-                    Ipv4AddrFormatWrapper::new(address.ip()),
-                    data,
-                    err
-                );
+                option.replace(RecvResult {
+                    recv_len: data.len(),
+                    from_addr: address,
+                    error: err,
+                });
+                self.recv_buffer[..data.len()].copy_from_slice(data);
             }
-        } else {
-            error!(
+            Some((_, op)) => error!(
+                "Socket NOT in recvfrom: socket:{:?} address:{:?} data:{:?} error:{:?} actual state:{:?}",
+                socket,
+                Ipv4AddrFormatWrapper::new(address.ip()),
+                data,
+                err,
+                op
+            ),
+            None => error!(
                 "UNKNOWN on_recvfrom: socket:{:?} address:{:?} data:{:?} error:{:?}",
                 socket,
                 Ipv4AddrFormatWrapper::new(address.ip()),
                 data,
                 err
-            );
-        }
-        if found {
-            self.recv_buffer[..data.len()].copy_from_slice(data);
-            self.recv_len = data.len();
-            self.last_error = err;
-            self.udp_sockets_addr[socket.v as usize - UDP_SOCK_OFFSET].replace(address);
+            ),
         }
     }
     fn on_bind(&mut self, sock: Socket, err: SocketError) {
