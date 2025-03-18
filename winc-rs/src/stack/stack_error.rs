@@ -37,10 +37,10 @@ pub enum StackError {
     ApJoinFailed(WifiConnError),
     /// Scan operation failed
     ApScanFailed(WifiConnError),
-    /// Internal for delaying
-    CallDelay,
-    /// Dispatch event
-    Dispatch,
+    // Continue
+    ContinueOperation,
+    /// Not found
+    SocketNotFound,
 }
 
 impl From<core::convert::Infallible> for StackError {

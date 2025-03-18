@@ -173,22 +173,32 @@ impl defmt::Format for AcceptResult {
     }
 }
 
-// todo: add result structs to Recvs, and Sends as well.
+#[derive(PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AsyncState {
+    Pending(Option<u32>),
+    Done,
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AsyncOp {
+    Connect(Option<ConnectResult>),
+    Send(SendRequest, Option<i16>),
+    SendTo(SendRequest, Option<i16>),
+    Recv(Option<RecvResult>),
+    RecvFrom(Option<RecvResult>),
+    Accept(Option<AcceptResult>),
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ClientSocketOp {
     None,
     New,
-    Connect((u32, Option<ConnectResult>)),
-    // Request tracking offset and remaining, final value
-    // is whatever is returned by callback
-    Send(SendRequest, Option<i16>),
-    SendTo(SendRequest, Option<i16>),
-    Recv(Option<RecvResult>),
-    RecvFrom(Option<RecvResult>),
     Bind(Option<BindListenResult>),
     Listen(Option<BindListenResult>),
-    Accept(Option<AcceptResult>),
+    AsyncOp(AsyncOp, AsyncState),
 }
 
 impl SocketCallbacks {
@@ -324,8 +334,15 @@ impl EventListener for SocketCallbacks {
     fn on_connect(&mut self, socket: Socket, err: SocketError) {
         debug!("on_connect: socket {:?}", socket);
         match self.resolve(socket) {
-            Some((_, ClientSocketOp::Connect((_, option)))) => {
+            Some((
+                _,
+                ClientSocketOp::AsyncOp(
+                    AsyncOp::Connect(option),
+                    asyncstate @ AsyncState::Pending(_),
+                ),
+            )) => {
                 option.replace(ConnectResult { error: err });
+                *asyncstate = AsyncState::Done;
             }
             Some((s, op)) => error!(
                 "UNKNOWN STATE on_connect (x): socket:{:?} error:{:?} state:{:?}",
@@ -340,18 +357,25 @@ impl EventListener for SocketCallbacks {
     fn on_send_to(&mut self, socket: Socket, len: i16) {
         debug!("on_send_to: socket:{:?} length:{:?}", socket, len);
         match self.resolve(socket) {
-            Some((s, ClientSocketOp::SendTo(req, option))) => {
+            Some((
+                s,
+                ClientSocketOp::AsyncOp(
+                    AsyncOp::SendTo(req, option),
+                    asyncstate @ AsyncState::Pending(_),
+                ),
+            )) => {
                 req.total_sent += len;
                 req.remaining -= len;
                 if req.remaining <= 0 {
-                    debug!("FIN: on_send: socket:{:?} length:{:?}", s, len);
+                    debug!("FIN: on_send_to: socket:{:?} length:{:?}", s, len);
                     option.replace(len);
+                    *asyncstate = AsyncState::Done;
                 } else {
-                    debug!("CONT: on_send: socket:{:?} length:{:?}", s, len);
+                    debug!("CONT: on_send_to: socket:{:?} length:{:?}", s, len);
                 }
             }
             Some((s, op)) => error!(
-                "UNKNOWN STATE on_send (x): socket:{:?} len:{:?} state:{:?}",
+                "UNKNOWN STATE on_send_to (x): socket:{:?} len:{:?} state:{:?}",
                 s, len, *op
             ),
             None => error!(
@@ -363,12 +387,19 @@ impl EventListener for SocketCallbacks {
     fn on_send(&mut self, socket: Socket, len: i16) {
         debug!("on_send: socket {:?} len:{}", socket, len);
         match self.resolve(socket) {
-            Some((s, ClientSocketOp::Send(req, option))) => {
+            Some((
+                s,
+                ClientSocketOp::AsyncOp(
+                    AsyncOp::Send(req, option),
+                    asyncstate @ AsyncState::Pending(_),
+                ),
+            )) => {
                 req.total_sent += len;
                 req.remaining -= len;
                 if req.remaining <= 0 {
                     debug!("FIN: on_send: socket:{:?} length:{:?}", s, len);
                     option.replace(len);
+                    *asyncstate = AsyncState::Done;
                 } else {
                     debug!("CONT: on_send: socket:{:?} length:{:?}", s, len);
                 }
@@ -392,7 +423,9 @@ impl EventListener for SocketCallbacks {
     ) {
         debug!("on_recv: socket {:?}", socket);
         match self.resolve(socket) {
-            Some((s, ClientSocketOp::Recv(option))) => {
+            Some((s, ClientSocketOp::AsyncOp(
+                    AsyncOp::Recv(option),
+                    asyncstate @ AsyncState::Pending(_),))) => {
                 debug!(
                     "on_recv: socket:{:?} address:{:?} data:{:?} len:{:?} error:{:?}",
                     s,
@@ -406,6 +439,7 @@ impl EventListener for SocketCallbacks {
                     from_addr: address,
                     error: err,
                 });
+                *asyncstate = AsyncState::Done;
                 self.recv_buffer[..data.len()].copy_from_slice(data);
             }
             Some((_, op)) => error!(
@@ -433,7 +467,9 @@ impl EventListener for SocketCallbacks {
     ) {
         debug!("on_recvfrom: socket {:?}", socket);
         match self.resolve(socket) {
-            Some((s, ClientSocketOp::RecvFrom(option))) => {
+            Some((s, ClientSocketOp::AsyncOp(
+                    AsyncOp::RecvFrom(option),
+                    asyncstate @ AsyncState::Pending(_),))) => {
                 debug!(
                     "on_recvfrom: raw:{:?} socket:{:?} address:{:?} data:{:?} error:{:?}",
                     socket,
@@ -447,6 +483,7 @@ impl EventListener for SocketCallbacks {
                     from_addr: address,
                     error: err,
                 });
+                *asyncstate = AsyncState::Done;
                 self.recv_buffer[..data.len()].copy_from_slice(data);
             }
             Some((_, op)) => error!(
@@ -512,12 +549,20 @@ impl EventListener for SocketCallbacks {
         );
 
         match self.resolve(listen_socket) {
-            Some((_, ClientSocketOp::Accept(option))) => {
+            Some((s, ClientSocketOp::AsyncOp(
+                    AsyncOp::Accept(option),
+                    asyncstate @ AsyncState::Pending(_),))) => {
+                debug!("on_accept: socket:{:?} port:{:?} address:{:?} accepted_socket:{:?}", s,
+                    Ipv4AddrFormatWrapper::new(address.ip()),
+                    address.port(),
+                    accepted_socket);
                 option.replace(AcceptResult {
                     accept_addr: address,
                     accepted_socket,
                 });
+                *asyncstate = AsyncState::Done;
             }
+            // Todo here: If it was in None state, move it to accept backlog
             Some((_, op)) => error!(
                 "Socket was NOT in accept: address:{:?} port:{:?} listen_socket:{:?} accepted_socket:{:?} actual state:{:?}",
                 Ipv4AddrFormatWrapper::new(address.ip()),
