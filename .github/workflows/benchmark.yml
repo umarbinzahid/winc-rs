@@ -18,19 +18,47 @@ jobs:
     name: Run Rust benchmark example
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain update nightly && rustup default nightly
+      - name: Install jq
+        run: sudo apt-get install -y jq
 
-      - name: Create benchmark results file
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
+            target: thumbv6m-none-eabi
+            profile: minimal
+      - name: Install flip-link
+        run: cargo install flip-link
+      - name: Install cargo-bloat
+        run: cargo install cargo-bloat
+
+      - name: Cargo bloat http_server
+        working-directory: feather
         run: |
-          echo '[{"name": "custommetric", "unit": "kilobyte","value" : 20}]' > benchmark_results.json
-          cat benchmark_results.json  # Debug: show what we created
+            cargo bloat --release --example=http_server --message-format json > http_server.json
+
+      - name: Cargo bloat iperf3_client
+        working-directory: feather
+        run: |
+            cargo bloat --release --example=iperf3_client --features=iperf3 --message-format json > iperf3_client.json
+
+      - name: Make combined benchmark results
+        run: |
+            jq -s '[{
+                "name": "http_server",
+                "unit": "byte",
+                "value": (.[0]."text-section-size")
+                },{
+                "name" : "iperf3_client",
+                "unit": "byte",
+                "value": (.[1]."text-section-size")
+            }]' feather/http_server.json feather/iperf3_client.json > benchmark_results.json
 
       - name: Upload benchmark files
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-files
-          path: benchmark_results.json
+          path: '*.json'
         if: always()  # This ensures it runs even if later steps fail
 
       - name: Store benchmark result
@@ -38,3 +66,7 @@ jobs:
         with:
           tool: customSmallerIsBetter
           output-file-path: benchmark_results.json
+          # Access token to deploy GitHub Pages branch
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Push and deploy GitHub pages branch automatically
+          auto-push: true
