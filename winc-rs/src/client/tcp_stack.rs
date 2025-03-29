@@ -336,7 +336,7 @@ impl<X: Xfer> TcpFullStack for WincClient<'_, X> {
 mod test {
 
     use super::*;
-    use crate::client::test_shared::*;
+    use crate::client::{self, test_shared::*};
     use crate::{client::SocketCallbacks, manager::EventListener, socket::Socket};
     use core::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
     use embedded_nal::{TcpClientStack, TcpFullStack};
@@ -397,7 +397,10 @@ mod test {
         let packet = "Hello, World";
 
         let mut my_debug = |callbacks: &mut SocketCallbacks| {
-            callbacks.on_send(Socket::new(0, 0), packet.len() as i16);
+            callbacks.on_send(
+                Socket::new(0, 0),
+                client::WincClient::<'_, MockTransfer>::MAX_SEND_LENGTH as i16,
+            );
         };
 
         client.debug_callback = Some(&mut my_debug);
@@ -489,5 +492,32 @@ mod test {
         let result = nb::block!(client.accept(&mut tcp_socket));
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_tcp_check_max_send_buffer() {
+        let mut client = make_test_client();
+        let mut tcp_socket = client.socket().unwrap();
+        let packet = "Hello, World";
+        let socket = Socket::new(0, 0);
+        let valid_len: i16 = client::WincClient::<'_, MockTransfer>::MAX_SEND_LENGTH as i16;
+
+        let mut my_debug = |callbacks: &mut SocketCallbacks| {
+            callbacks.on_send(socket, valid_len);
+        };
+
+        client.debug_callback = Some(&mut my_debug);
+
+        let result = client.send(&mut tcp_socket, packet.as_bytes());
+
+        assert_eq!(result, Err(nb::Error::WouldBlock));
+
+        if let Some((_, ClientSocketOp::AsyncOp(AsyncOp::Send(req, _), _))) =
+            client.callbacks.resolve(socket)
+        {
+            assert!((req.total_sent == valid_len) && (req.remaining == 0 as i16));
+        } else {
+            assert!(false, "Expected Some value, but it returned None");
+        }
     }
 }
