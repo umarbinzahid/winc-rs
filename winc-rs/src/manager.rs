@@ -82,6 +82,14 @@ const ETHERNET_HEADER_OFFSET: usize = 34;
 const IP_PACKET_OFFSET: usize = ETHERNET_HEADER_LENGTH + ETHERNET_HEADER_OFFSET; // - HIF_HEADER_OFFSET;
 
 pub const SOCKET_BUFFER_MAX_LENGTH: usize = 1400;
+pub const PRNG_PACKET_SIZE: usize = 8;
+
+#[cfg(feature = "large_rng")]
+// Maximum length supported by the chip in one iteration.
+pub(crate) const PRNG_DATA_LENGTH: usize = 1600 - 4 - PRNG_PACKET_SIZE;
+
+#[cfg(not(feature = "large_rng"))]
+pub(crate) const PRNG_DATA_LENGTH: usize = 32;
 
 const HIF_SEND_RETRIES: usize = 1000;
 
@@ -127,6 +135,7 @@ pub trait EventListener {
     fn on_send(&mut self, socket: Socket, len: i16);
     fn on_recv(&mut self, socket: Socket, address: SocketAddrV4, data: &[u8], err: SocketError);
     fn on_recvfrom(&mut self, socket: Socket, address: SocketAddrV4, data: &[u8], err: SocketError);
+    fn on_prng(&mut self, data: &[u8]);
 }
 
 pub struct Manager<X: Xfer> {
@@ -752,6 +761,35 @@ impl<X: Xfer> Manager<X> {
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
+    /// Sends a PRNG request to the chip.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of the input buffer where the PRNG data will be stored.
+    /// * `len` - The length of the input buffer, i.e., the number of random bytes to generate.
+    ///
+    /// # Warning
+    ///
+    /// * It is recommended to pass the address of a valid memory location rather than
+    ///   an arbitrary one, to avoid potential memory leaks or data corruption.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - If the request is successfully sent.
+    /// * `Error` - If an error occurred during the PRNG packet request or preparation.
+    pub fn send_prng(&mut self, addr: u32, len: u16) -> Result<(), Error> {
+        let req = write_prng_req(addr, len)?;
+        self.write_hif_header(
+            HifGroup::Wifi(WifiResponse::Unhandled),
+            WifiRequest::GetPrng,
+            &req,
+            true,
+        )?;
+        self.chip
+            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
     pub fn dispatch_events_new<T: EventListener>(&mut self, listener: &mut T) -> Result<(), Error> {
         let res = self.is_interrupt_pending()?;
         if !res.0 {
@@ -823,7 +861,17 @@ impl<X: Xfer> Manager<X> {
                     unimplemented!("Provisioning not yet supported")
                 }
                 WifiResponse::GetPrng => {
-                    unimplemented!("PRNG request not yet supported")
+                    let mut response = [0; PRNG_DATA_LENGTH];
+                    // read the prng packet
+                    self.read_block(address, &mut response[0..PRNG_PACKET_SIZE])?;
+
+                    let (_, len) = read_prng_reply(&response)?;
+                    // read the random bytes
+                    self.read_block(
+                        address + PRNG_PACKET_SIZE as u32,
+                        &mut response[0..len as usize],
+                    )?;
+                    listener.on_prng(&response[0..len as usize]);
                 }
                 WifiResponse::Unhandled
                 | WifiResponse::Wps
@@ -1145,5 +1193,27 @@ mod tests {
         assert_eq!(socket, Socket::new(1, 257));
         assert_eq!(err, SocketError::ConnAborted);
         assert_eq!(dataslice, &[]);
+    }
+
+    #[test]
+    fn test_prng() {
+        let mut buff = [0u8; 100];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+
+        assert_eq!(mgr.send_prng(0x2000_65DC, 16), Ok(()));
+
+        assert_eq!(buff[CMD_OFFSET], 0x1F);
+
+        let slice = &buff[DATA_OFFSET..DATA_OFFSET + PRNG_PACKET_SIZE];
+
+        assert_eq!(
+            slice,
+            &[
+                0xDC, 0x65, 0x00, 0x020, // Address
+                0x10, 0x00, // length
+                0x00, 0x00 // void
+            ]
+        )
     }
 }

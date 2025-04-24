@@ -1,6 +1,6 @@
 use core::net::Ipv4Addr;
 
-use crate::manager::{EventListener, SocketError, WifiConnError, WifiConnState};
+use crate::manager::{EventListener, SocketError, WifiConnError, WifiConnState, PRNG_DATA_LENGTH};
 use crate::ConnectionInfo;
 
 use crate::{debug, error, info};
@@ -116,6 +116,8 @@ pub(crate) struct SocketCallbacks {
     pub dns_resolved_addr: Option<Option<core::net::Ipv4Addr>>,
     pub connection_state: ConnectionState,
     pub state: WifiModuleState,
+    // Random Number Generator
+    pub prng: Option<Option<Prng>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,6 +206,14 @@ pub enum ClientSocketOp {
     AsyncOp(AsyncOp, AsyncState),
 }
 
+/// PRNG (Pseudorandom Number Generator) structure.
+/// The `defmt` feature derives `defmt::Format` for logging/serialization if enabled.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Prng {
+    pub offset: usize,
+    pub rcv_buffer: Option<[u8; PRNG_DATA_LENGTH]>,
+}
+
 impl SocketCallbacks {
     pub fn new() -> Self {
         Self {
@@ -216,6 +226,7 @@ impl SocketCallbacks {
             dns_resolved_addr: None,
             connection_state: ConnectionState::new(),
             state: WifiModuleState::Reset,
+            prng: None,
         }
     }
     pub fn resolve(&mut self, socket: Socket) -> Option<&mut (Socket, ClientSocketOp)> {
@@ -610,6 +621,21 @@ impl EventListener for SocketCallbacks {
                 listen_socket,
                 accepted_socket
             ),
+        }
+    }
+
+    /// Callback function to store the random bytes read from the chip in the PRNG data.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Random bytes read from the chip.
+    fn on_prng(&mut self, data: &[u8]) {
+        if let Some(Some(prng)) = self.prng.as_mut() {
+            if let ref mut buffer @ None = prng.rcv_buffer {
+                let mut new_buf = [0u8; PRNG_DATA_LENGTH];
+                new_buf[..data.len()].copy_from_slice(data);
+                *buffer = Some(new_buf);
+            }
         }
     }
 }
