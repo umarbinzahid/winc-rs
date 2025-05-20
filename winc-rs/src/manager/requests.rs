@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::manager::net_types::WpaKey;
 use crate::readwrite::BufferOverflow;
 use crate::readwrite::Write;
 
 use crate::socket::Socket;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use super::constants::AuthType;
+use super::constants::{AuthType, MAX_PSK_KEY_LEN, START_PROVISION_PACKET_SIZE};
+
+use super::net_types::WepKey;
+use super::{AccessPoint, Credentials, HostName};
 
 // todo: support other auth besides Open/WPA
 pub fn write_connect_request(
@@ -30,7 +34,7 @@ pub fn write_connect_request(
 ) -> Result<[u8; 108], BufferOverflow> {
     let mut result = [0xCCu8; 108];
     let mut slice = result.as_mut_slice();
-    if password.len() > 63 {
+    if password.len() > MAX_PSK_KEY_LEN {
         return Err(BufferOverflow);
     }
     slice.write(password.as_bytes())?;
@@ -208,8 +212,116 @@ pub fn write_prng_req(addr: u32, len: u16) -> Result<[u8; 8], BufferOverflow> {
     Ok(req)
 }
 
+/// Prepares the packet to start the provisioning mode.
+///
+/// Packet Structure:
+///
+/// |       Name        | Bytes |      Name        | Bytes |
+/// |-------------------|-------|------------------|-------|
+/// |       SSID        |   33  |     Channel      |   1   |
+/// |     Key Size      |   1   |     Wep key      |   1   |
+/// |     Wep key       |   27  |     Security     |   1   |
+/// |  SSID Visibility  |   1   |  DHCP server IP  |   4   |
+/// |      WPA Key      |   65  |     Padding      |   2   |
+/// |      DNS url      |   64  |   Http Redirect  |   1   |
+/// |      Padding      |   3   |                  |       |
+///
+///
+/// # Arguments
+///
+/// * `ap` - An `AccessPoint` struct containing the SSID, passphrase, and other network details.
+/// * `dns` - DNS redirect URL as a string slice (max 63 bytes).
+/// * `http_redirect` - Whether HTTP redirect is enabled.
+///
+/// # Returns
+///
+/// * `[u8; START_PROVISION_PACKET_SIZE])` - The provisioning request packet as a fixed-size byte array.
+/// * `BufferOverflow` - If the input data exceeds allowed size or the buffer limit.
+pub fn write_start_provisioning_req(
+    ap: &AccessPoint,
+    hostname: &HostName,
+    http_redirect: bool,
+) -> Result<[u8; START_PROVISION_PACKET_SIZE], BufferOverflow> {
+    let mut req = [0u8; START_PROVISION_PACKET_SIZE];
+    let mut slice = req.as_mut_slice();
+
+    // Set parameters for WEP
+    let wep_key_index: u8;
+    let wep_key: WepKey;
+    #[cfg(feature = "wep")]
+    {
+        if let Credentials::Wep(key, index) = ap.key {
+            wep_key_index = index.into();
+            wep_key = key;
+        } else {
+            wep_key_index = 0;
+            wep_key = WepKey::new();
+        }
+    }
+
+    #[cfg(not(feature = "wep"))]
+    {
+        wep_key_index = 0;
+        wep_key = WepKey::new();
+    }
+
+    // Set parameters for WPA-PSK
+    let wpa_key = if let Credentials::WpaPSK(key) = ap.key {
+        key
+    } else {
+        WpaKey::new()
+    };
+
+    // dhcp
+    let dhcp: u32 = ap.ip.into();
+
+    // SSID
+    slice.write(ap.ssid.as_bytes())?;
+    // Null termination
+    slice = &mut req[32..];
+    slice.write(&[0u8])?;
+    // WiFi channel
+    slice.write(&[(ap.channel).into()])?;
+    // Wep key Index
+    slice.write(&[wep_key_index])?;
+    // Wep/WPA key size
+    slice.write(&[ap.key.key_len() as u8])?;
+    // Wep key
+    slice.write(wep_key.as_bytes())?;
+    // Null termination
+    slice = &mut req[62..];
+    slice.write(&[0u8])?;
+    // Security type
+    slice.write(&[(ap.key).into()])?;
+    // SSID visibility
+    slice.write(&[ap.ssid_hidden as u8])?;
+    // dhcp server
+    slice.write(&dhcp.to_be_bytes())?;
+    // WPA key
+    slice.write(wpa_key.as_bytes())?;
+    // WINC firmware supports 64 bytes (+1 over standard) plus null terminator.
+    slice = &mut req[132..];
+    // Null termination
+    slice.write(&[0u8, 0u8])?;
+    // Padding
+    slice.write(&[0u8, 0u8])?;
+    // Device Domain name
+    slice.write(hostname.as_bytes())?;
+    // Null termination
+    slice = &mut req[199..];
+    slice.write(&[0u8])?;
+    // Http redirect
+    slice.write(&[http_redirect as u8])?;
+    // Padding
+    slice.write(&[0u8, 0u8, 0u8])?;
+
+    Ok(req)
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::Ssid;
+
     use super::*;
     #[test]
     fn test_scan() {
@@ -409,5 +521,31 @@ mod tests {
         let addr = 0x200065DC;
         let len = 32;
         assert_eq!(write_prng_req(addr, len).unwrap(), request);
+    }
+
+    #[test]
+    fn test_start_provisioning_request() {
+        let valid_req: [u8; START_PROVISION_PACKET_SIZE] = [
+            /* Ssid */ 116, 101, 115, 116, 95, 115, 115, 105, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* Wifi Channel */ 1,
+            /* Wep key Index */ 0, /* Wep/Wpa Key Size */ 13, /* Wep key */ 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            /* Security Type */ 2, /* ssid hidden */ 0, /* DHCP Server */ 0xC0,
+            0xA8, 0x01, 0x01, /* WPA Key */ 116, 101, 115, 116, 95, 112, 97, 115, 115, 119,
+            111, 114, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            /* padding */ 0, 0, /* hostname */ 97, 100, 109, 105, 110, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            /* Http redirect */ 0, /* padding */ 0, 0, 0,
+        ];
+        let ap_ssid = Ssid::from("test_ssid").unwrap();
+        let psk = WpaKey::from("test_password").unwrap();
+        let access_point = AccessPoint::wpa(&ap_ssid, &psk);
+        let hostname = HostName::from("admin").unwrap();
+
+        let result = write_start_provisioning_req(&access_point, &hostname, false).unwrap();
+
+        assert_eq!(result, valid_req);
     }
 }
