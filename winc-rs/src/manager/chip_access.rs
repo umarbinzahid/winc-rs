@@ -17,7 +17,6 @@ use crate::errors::Error;
 use crate::transfer::*;
 
 use crc_any::CRC;
-use defmt::debug;
 
 use crate::HexWrap;
 use crate::{trace, warn};
@@ -92,7 +91,12 @@ impl<X: Xfer> ChipAccess<X> {
         }
     }
 
-    fn read_cmd_response(&mut self, expected: &[u8], resp_header: bool, msg: &'static str) -> Result<(), Error> {
+    fn read_cmd_response(
+        &mut self,
+        expected: &[u8],
+        resp_header: bool,
+        msg: &'static str,
+    ) -> Result<(), Error> {
         let mut counter: u32 = 10;
         let mut rdbuf = [0xFF; 1];
 
@@ -139,7 +143,7 @@ impl<X: Xfer> ChipAccess<X> {
         self.read_cmd_response(&[0], false, "single_reg_read:zero")?;
 
         // Data Response Header
-        self.read_cmd_response(&[0xf], true, "single_reg_read:ack")?; 
+        self.read_cmd_response(&[0xf], true, "single_reg_read:ack")?;
 
         let mut data_buf = [0x00; 4];
         self.xfer.recv(&mut data_buf)?;

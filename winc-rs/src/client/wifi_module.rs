@@ -98,9 +98,9 @@ impl<X: Xfer> WincClient<'_, X> {
             WifiModuleState::ConnectionFailed => {
                 // Reset the state to Unconnected
                 self.callbacks.state = WifiModuleState::Unconnected;
-                return Err(nb::Error::Other(StackError::ApJoinFailed(
+                Err(nb::Error::Other(StackError::ApJoinFailed(
                     self.callbacks.connection_state.conn_error.take().unwrap(),
-                )));
+                )))
             }
             WifiModuleState::ConnectedToAp => {
                 info!("connect_to_ap: got Connected to AP");

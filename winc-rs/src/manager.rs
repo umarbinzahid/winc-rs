@@ -180,14 +180,13 @@ impl Default for BootState {
     }
 }
 impl<X: Xfer> Manager<X> {
-
     /// Disables CRC checking for communication with the chip.
     fn disable_xfer_crc(&mut self, _chip_id: u32) -> Result<(), Error> {
         debug!("Disabling CRC");
         let mut conf = self.chip.single_reg_read(Regs::SpiConfig.into())?;
         conf &= !0xc; // disable crc checking
         conf &= !0x70;
-		conf |= 0x5 << 4;
+        conf |= 0x5 << 4;
         self.chip.single_reg_write(Regs::SpiConfig.into(), conf)?;
         self.set_crc_state(false);
 
