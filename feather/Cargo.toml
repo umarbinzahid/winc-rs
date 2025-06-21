@@ -43,6 +43,7 @@ required-features = ["telnet"]
 iperf3 = ["demos/iperf3"]
 oled = ["dep:ssd1306"]
 telnet = ["demos/telnet"]
+irq = ["wincwifi/irq"] # Use Interrupt instead of polling
 
 # cargo build/run
 [profile.dev]
