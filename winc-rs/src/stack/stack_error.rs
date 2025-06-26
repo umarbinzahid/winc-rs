@@ -77,3 +77,36 @@ impl From<nb::Error<StackError>> for StackError {
         }
     }
 }
+
+impl core::fmt::Display for StackError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::WouldBlock => write!(f, "Operation would block"),
+            Self::GeneralTimeout => write!(f, "General timeout"),
+            Self::ConnectTimeout => write!(f, "TCP connection timed out"),
+            Self::RecvTimeout => write!(f, "Receive timeout"),
+            Self::SendTimeout => write!(f, "Send timeout"),
+            Self::OutOfSockets => write!(f, "Out of sockets"),
+            Self::SocketAlreadyInUse => write!(f, "Socket already in use"),
+            Self::CloseFailed => write!(f, "Close failed"),
+            Self::Unexpected => write!(f, "Unexpected error"),
+            Self::DispatchError(err) => write!(f, "Dispatch error: {}", err),
+            Self::ConnectSendFailed(err) => write!(f, "Connect send failed: {}", err),
+            Self::ReceiveFailed(err) => write!(f, "Receive failed: {}", err),
+            Self::SendSendFailed(err) => write!(f, "Send send failed: {}", err),
+            Self::SendCloseFailed(err) => write!(f, "Send close failed: {}", err),
+            Self::BindFailed(err) => write!(f, "Bind failed: {}", err),
+            Self::WincWifiFail(err) => write!(f, "WincWifi fail: {}", err),
+            Self::OpFailed(err) => write!(f, "Operation failed: {}", err),
+            Self::DnsTimeout => write!(f, "DNS lookup timed out"),
+            Self::DnsFailed => write!(f, "DNS lookup failed"),
+            Self::InvalidState => write!(f, "Invalid state"),
+            Self::AlreadyConnected => write!(f, "Already connected"),
+            Self::ApJoinFailed(err) => write!(f, "Access point join failed: {}", err),
+            Self::ApScanFailed(err) => write!(f, "Access point scan failed: {}", err),
+            Self::ContinueOperation => write!(f, "Continue operation"),
+            Self::SocketNotFound => write!(f, "Socket not found"),
+            Self::InvalidParameters => write!(f, "Invalid parameters"),
+        }
+    }
+}
