@@ -14,7 +14,7 @@ use feather::{debug, error, info};
 const DEFAULT_TEST_SSID: &str = "network";
 const DEFAULT_TEST_PASSWORD: &str = "password";
 
-use wincwifi::{StackError, WincClient};
+use wincwifi::{Credentials, Ssid, StackError, WifiChannel, WincClient};
 
 fn program() -> Result<(), StackError> {
     if let Ok(mut ini) = init() {
@@ -26,11 +26,13 @@ fn program() -> Result<(), StackError> {
 
         let mut delay_ms = delay_fn(&mut cnt.0);
 
-        let ssid = option_env!("TEST_SSID").unwrap_or(DEFAULT_TEST_SSID);
+        let ssid = Ssid::from(option_env!("TEST_SSID").unwrap_or(DEFAULT_TEST_SSID)).unwrap();
         let password = option_env!("TEST_PASSWORD").unwrap_or(DEFAULT_TEST_PASSWORD);
+        let credentials = Credentials::from_wpa(password)?;
         info!(
             "Connecting to network: {} with password: {}",
-            ssid, password
+            ssid.as_str(),
+            password
         );
         let mut stack = WincClient::new(SpiStream::new(ini.cs, ini.spi));
 
@@ -53,7 +55,7 @@ fn program() -> Result<(), StackError> {
         }
 
         info!("Started, connecting to AP ..");
-        nb::block!(stack.connect_to_ap(ssid, password, false))?;
+        nb::block!(stack.connect_to_ap(&ssid, &credentials, WifiChannel::ChannelAll, false))?;
 
         info!(".. connected to AP, going to loop");
         loop {
