@@ -15,22 +15,6 @@ use embedded_nal::nb;
 
 use crate::stack::sock_holder::SocketStore;
 
-impl<X: Xfer> WincClient<'_, X> {
-    /// Todo: actually implement this
-    pub fn set_socket_option(
-        &mut self,
-        socket: &Handle,
-        option: u8,
-        value: u32,
-    ) -> Result<(), StackError> {
-        let (sock, _op) = self.callbacks.tcp_sockets.get(*socket).unwrap();
-        self.manager
-            .send_setsockopt(*sock, option, value)
-            .map_err(StackError::WincWifiFail)?;
-        Ok(())
-    }
-}
-
 impl<X: Xfer> embedded_nal::TcpClientStack for WincClient<'_, X> {
     type TcpSocket = Handle;
     type Error = StackError;
@@ -210,7 +194,7 @@ impl<X: Xfer> embedded_nal::TcpClientStack for WincClient<'_, X> {
             |sock, manager| -> Result<ClientSocketOp, StackError> {
                 debug!("<> Sending socket send_recv to {:?}", sock);
                 manager
-                    .send_recv(*sock, Self::RECV_TIMEOUT)
+                    .send_recv(*sock, sock.get_recv_timeout())
                     .map_err(StackError::ReceiveFailed)?;
                 Ok(ClientSocketOp::AsyncOp(
                     AsyncOp::Recv(None),
@@ -255,7 +239,7 @@ impl<X: Xfer> embedded_nal::TcpClientStack for WincClient<'_, X> {
                             debug!("Timeout on receive, re-sending receive command");
                             // Re-send the receive command with the same timeout
                             manager
-                                .send_recv(*sock, Self::RECV_TIMEOUT)
+                                .send_recv(*sock, sock.get_recv_timeout())
                                 .map_err(StackError::ReceiveFailed)?;
                             Err(StackError::ContinueOperation)
                         }

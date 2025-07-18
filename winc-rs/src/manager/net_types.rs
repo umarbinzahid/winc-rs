@@ -57,6 +57,45 @@ pub enum Credentials {
     S802_1X(S8Username, S8Password) = 4,
 }
 
+/// Socket Options
+#[derive(Debug, PartialEq, Eq)]
+pub enum SocketOptions {
+    Tcp(TcpSockOpts),
+    Udp(UdpSockOpts),
+}
+
+/// Socket Options
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum UdpSockOpts {
+    /// Receive Timeout
+    ReceiveTimeout(u32) = 0xff,
+    /// Enable/Disable callback for UDP send.
+    SetUdpSendCallback(bool) = 0x00,
+    /// Join Multicast group
+    JoinMulticast(Ipv4Addr) = 0x01,
+    /// Leave Multicast group
+    LeaveMulticast(Ipv4Addr) = 0x02,
+}
+
+/// TCP Socket Options
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum TcpSockOpts {
+    /// Receive Timeout
+    ReceiveTimeout(u32) = 0xff,
+    /// SSL Socket Options
+    Ssl(SslSockOpts) = 0xfe,
+}
+
+/// TLS Socket Option
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum SslSockOpts {
+    /// Set Server Name Indication (SNI).
+    SetSni(HostName) = 0x02,
+}
+
 /// Structure for Provisioning Information.
 pub struct ProvisioningInfo {
     /// The SSID (network name) of the network.
@@ -84,6 +123,7 @@ pub struct AccessPoint<'a> {
     pub ip: Ipv4Addr,
 }
 
+/// Implementation to convert the Credentials to Authentication Type
 impl From<Credentials> for AuthType {
     fn from(cred: Credentials) -> Self {
         match cred {
@@ -96,6 +136,7 @@ impl From<Credentials> for AuthType {
     }
 }
 
+/// Implementation to convert the Credentials to `u8` value.
 impl From<Credentials> for u8 {
     fn from(val: Credentials) -> Self {
         match val {
@@ -108,6 +149,7 @@ impl From<Credentials> for u8 {
     }
 }
 
+/// Implementation of `Credentials` to create new configuration or get length of stored key.
 impl Credentials {
     /// Get the length of password stored in the Credentials.
     pub fn key_len(&self) -> usize {
@@ -177,6 +219,165 @@ impl Credentials {
         WepKey::from(key)
             .map(|key| Credentials::Wep(key, key_index))
             .map_err(|_| StackError::InvalidParameters)
+    }
+}
+
+/// Implementation to convert `UdpSockOpts` to `u8` value.
+impl From<UdpSockOpts> for u8 {
+    fn from(value: UdpSockOpts) -> Self {
+        match value {
+            UdpSockOpts::SetUdpSendCallback(_) => 0x00,
+            UdpSockOpts::JoinMulticast(_) => 0x01,
+            UdpSockOpts::LeaveMulticast(_) => 0x02,
+            UdpSockOpts::ReceiveTimeout(_) => 0xff,
+        }
+    }
+}
+
+/// Implementation to get 32-bit value stored in UDP socket option.
+impl UdpSockOpts {
+    /// Get the value of the Socket option.
+    pub fn get_value(&self) -> u32 {
+        match self {
+            UdpSockOpts::ReceiveTimeout(val) => *val,
+            UdpSockOpts::SetUdpSendCallback(val) => *val as u32,
+            UdpSockOpts::JoinMulticast(val) | UdpSockOpts::LeaveMulticast(val) => {
+                // Address needs to be in big endian format.
+                u32::from_le_bytes(val.to_bits().to_be_bytes())
+            }
+        }
+    }
+}
+
+/// Implementation to convert `TcpSockOpts` to `u8` value.
+impl From<TcpSockOpts> for u8 {
+    fn from(value: TcpSockOpts) -> Self {
+        match value {
+            TcpSockOpts::Ssl(_) => 0xfe,
+            TcpSockOpts::ReceiveTimeout(_) => 0xff,
+        }
+    }
+}
+
+/// Implementation to get 32-bit value stored in TCP socket option.
+impl TcpSockOpts {
+    /// Get the value of the Socket option.
+    pub fn get_value(&self) -> u32 {
+        match self {
+            TcpSockOpts::ReceiveTimeout(val) => *val,
+            // SSL values don't have 32 bit values.
+            TcpSockOpts::Ssl(_) => 0xfe,
+        }
+    }
+}
+
+/// Implementation to convert `SslSockOpts` to `u8` value.
+impl From<SslSockOpts> for u8 {
+    fn from(value: SslSockOpts) -> Self {
+        match value {
+            SslSockOpts::SetSni(_) => 0x02,
+        }
+    }
+}
+
+/// Implementation to convert `SslSockOpts` to `u8` value.
+impl From<&SslSockOpts> for u8 {
+    fn from(value: &SslSockOpts) -> Self {
+        match value {
+            SslSockOpts::SetSni(_) => 0x02,
+        }
+    }
+}
+
+/// Implementation to get value stored in SSL socket option.
+impl SslSockOpts {
+    pub fn get_value(&self) -> &ArrayString<MAX_HOST_NAME_LEN> {
+        match self {
+            SslSockOpts::SetSni(hostname) => hostname,
+        }
+    }
+}
+
+/// Implementation to create Socket Option configuration
+impl SocketOptions {
+    /// Set the socket option to join an IPv4 multicast group.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The IPv4 multicast address to join.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOption::Udp(UdpSockOpts::JoinMulticast` - The configured socket option.
+    pub fn join_multicast_v4(addr: Ipv4Addr) -> Self {
+        Self::Udp(UdpSockOpts::JoinMulticast(addr))
+    }
+
+    /// Set the socket option to leave an IPv4 multicast group.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The IPv4 multicast address to leave.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOption::Udp(UdpSockOpts::LeaveMulticast` - The configured socket option.
+    pub fn leave_multicast_v4(addr: Ipv4Addr) -> Self {
+        Self::Udp(UdpSockOpts::LeaveMulticast(addr))
+    }
+
+    /// Set the socket option to enable or disable the UDP send callback.
+    ///
+    /// # Arguments
+    ///
+    /// * `status` - Whether to enable (`true`) or disable (`false`) the UDP send callback.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOption::Udp(UdpSockOpts::SetUdpSendCallback` - The configured socket option.
+    pub fn set_udp_send_callback(status: bool) -> Self {
+        Self::Udp(UdpSockOpts::SetUdpSendCallback(status))
+    }
+
+    /// Set a socket option to configure the UDP socket receive timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Timeout duration in milliseconds.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOption::Udp(UdpSockOpts::ReceiveTimeout` - The configured socket option.
+    pub fn set_udp_receive_timeout(timeout: u32) -> Self {
+        Self::Udp(UdpSockOpts::ReceiveTimeout(timeout))
+    }
+
+    /// Set a socket option to configure the TCP socket receive timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Timeout duration in milliseconds.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOption::Tcp(TcpSockOpts::ReceiveTimeout` - The configured socket option.
+    pub fn set_tcp_receive_timeout(timeout: u32) -> Self {
+        Self::Tcp(TcpSockOpts::ReceiveTimeout(timeout))
+    }
+
+    /// Set the socket option to configure SNI (Server Name Indication) for TLS connections.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - The hostname to be used for SNI. Must not be greater then 63 bytes.
+    ///
+    /// # Returns
+    ///
+    /// * `SocketOptions::Tcp(TcpSockOpts::SetSni)` – The configured socket option on success.
+    /// * `StackError` – If the hostname length is invalid.
+    pub fn set_sni(hostname: &str) -> Result<Self, StackError> {
+        let host = HostName::from(hostname).map_err(|_| StackError::InvalidParameters)?;
+        Ok(Self::Tcp(TcpSockOpts::Ssl(SslSockOpts::SetSni(host))))
     }
 }
 
@@ -338,6 +539,7 @@ impl<'a> AccessPoint<'a> {
 
 #[cfg(test)]
 mod tests {
+    use core::str::FromStr;
 
     use super::*;
 
@@ -528,5 +730,180 @@ mod tests {
         let key = "0123456789ABCDEF0123456789";
         let result = Credentials::from_wep(key, WepKeyIndex::Key3);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sock_opts_get_join_multicast_value_success() {
+        let test_value: u32 = 0x101a8c0;
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opt = SocketOptions::join_multicast_v4(addr);
+
+        if let SocketOptions::Udp(opt) = sock_opt {
+            assert_eq!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_join_multicast_value_fail() {
+        let test_value: u32 = 0xc0a80101;
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opt = SocketOptions::join_multicast_v4(addr);
+
+        if let SocketOptions::Udp(opt) = sock_opt {
+            assert_ne!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_leave_multicast_value_success() {
+        let test_value: u32 = 0x101a8c0;
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opt = SocketOptions::join_multicast_v4(addr);
+
+        if let SocketOptions::Udp(opt) = sock_opt {
+            assert_eq!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_leave_multicast_value_fail() {
+        let test_value: u32 = 0xc0a80101;
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opt = SocketOptions::leave_multicast_v4(addr);
+
+        if let SocketOptions::Udp(opt) = sock_opt {
+            assert_ne!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_udp_send_callback_false_value() {
+        let sock_opts = SocketOptions::set_udp_send_callback(false);
+
+        if let SocketOptions::Udp(opt) = sock_opts {
+            assert_eq!(0u32, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_udp_send_callback_true_value() {
+        let sock_opts = SocketOptions::set_udp_send_callback(true);
+
+        if let SocketOptions::Udp(opt) = sock_opts {
+            assert_eq!(1u32, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_udp_recv_timeout_value() {
+        let test_value = 1500u32;
+        let sock_opts = SocketOptions::set_udp_receive_timeout(test_value);
+
+        if let SocketOptions::Udp(opt) = sock_opts {
+            assert_eq!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_tcp_recv_timeout_value() {
+        let test_value = 2500u32;
+        let sock_opts = SocketOptions::set_tcp_receive_timeout(test_value);
+
+        if let SocketOptions::Tcp(opt) = sock_opts {
+            assert_eq!(test_value, opt.get_value());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_get_sni_array_success() {
+        let test_value = "hostname".as_bytes();
+        let sock_opts = SocketOptions::set_sni("hostname").unwrap();
+
+        if let SocketOptions::Tcp(opt) = sock_opts {
+            if let TcpSockOpts::Ssl(ssl) = opt {
+                assert_eq!(ssl.get_value().as_bytes(), test_value);
+            } else {
+                assert!(false);
+            }
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_sock_opts_udp_join_multicast_u8_value() {
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opts = UdpSockOpts::JoinMulticast(addr);
+        assert_eq!(u8::from(sock_opts), 0x01u8);
+    }
+
+    #[test]
+    fn test_sock_opts_udp_leave_multicast_u8_value() {
+        let addr = Ipv4Addr::from_str("192.168.1.1").unwrap();
+        let sock_opts = UdpSockOpts::LeaveMulticast(addr);
+        assert_eq!(u8::from(sock_opts), 0x02u8);
+    }
+
+    #[test]
+    fn test_sock_opts_udp_receive_timeout_u8_value() {
+        let sock_opts = UdpSockOpts::ReceiveTimeout(1500);
+        assert_eq!(u8::from(sock_opts), 0xffu8);
+    }
+
+    #[test]
+    fn test_sock_opts_udp_send_callback_u8_value() {
+        let sock_opts = UdpSockOpts::SetUdpSendCallback(false);
+        assert_eq!(u8::from(sock_opts), 0x00u8);
+    }
+
+    #[test]
+    fn test_sock_opts_tcp_receive_timeout_u8_value() {
+        let sock_opts = TcpSockOpts::ReceiveTimeout(1500);
+        assert_eq!(u8::from(sock_opts), 0xffu8);
+    }
+
+    #[test]
+    fn test_sock_opts_tcp_ssl_u8_value() {
+        let host = HostName::from("hostname").unwrap();
+        let sock_opts = TcpSockOpts::Ssl(SslSockOpts::SetSni(host));
+        assert_eq!(u8::from(sock_opts), 0xfeu8);
+    }
+
+    #[test]
+    fn test_sock_opts_get_tcp_ssl_sni_value() {
+        let host = HostName::from("hostname").unwrap();
+        let sock_opts = TcpSockOpts::Ssl(SslSockOpts::SetSni(host));
+        assert_eq!(sock_opts.get_value(), 0xfeu32);
+    }
+
+    #[test]
+    fn test_sock_opts_ssl_sni_u8_value() {
+        let host = HostName::from("hostname").unwrap();
+        let sock_opts = SslSockOpts::SetSni(host);
+        assert_eq!(u8::from(sock_opts), 0x02u8);
+    }
+
+    #[test]
+    fn test_sock_opts_ssl_sni_invalid_paramter() {
+        let test_string =
+            "This is a test string that definitely contains more than sixty-three bytes of data.";
+        let sock_opts = SocketOptions::set_sni(test_string);
+        assert_eq!(sock_opts.err(), Some(StackError::InvalidParameters));
     }
 }
