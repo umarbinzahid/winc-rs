@@ -161,7 +161,8 @@ impl core::fmt::Display for WifiConnState {
     }
 }
 
-#[allow(dead_code)] // Todo: once complete maybe can remove
+/// Wifi Request IDs.
+#[derive(Copy, Clone)]
 pub enum WifiRequest {
     Restart = 0x01,            // implemented
     SetMacAddress = 0x02,      // M2M_WIFI_REQ_SET_MAC_ADDRESS
@@ -320,6 +321,13 @@ pub enum IpCode {
                             // Unimplemented Socket Commands (defined but not used)
                             // Socket = 0x40,      // SOCKET_CMD_SOCKET + no params (not sent, implicit in host logic)
                             // SslSetCsList = 0x53, // SOCKET_CMD_SSL_SET_CS_LIST + no specific data
+}
+
+/// Implementation to convert `IpCode` to `u8` value.
+impl From<IpCode> for u8 {
+    fn from(val: IpCode) -> Self {
+        val as Self
+    }
 }
 
 impl From<u8> for IpCode {
