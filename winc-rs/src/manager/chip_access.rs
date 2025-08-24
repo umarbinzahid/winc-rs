@@ -41,10 +41,20 @@ fn crc16(input: &[u8]) -> u16 {
 
 #[derive(Copy, Clone)]
 pub enum Cmd {
+    /// Cortus Register Write
+    IntrRegWrite = 0xc3,
+    /// Cortus Register Read
+    IntrRegRead = 0xc4,
+    /// Winc Register Read
     RegRead = 0xca,
+    /// Winc Register Write
     RegWrite = 0xc9,
+    /// Winc DMA Write
     DmaWrite = 0xc7,
+    /// Winc DMA Read
     DmaRead = 0xc8,
+    /// SPI Bus Reset
+    BusReset = 0xcf,
 }
 
 pub struct ChipAccess<X: Xfer> {
@@ -102,9 +112,26 @@ impl<X: Xfer> ChipAccess<X> {
         self.xfer.switch_to_high_speed();
     }
     // todo: change reg arg to enum
+    /// Reads a value from the module's register.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The register address to read from.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The value read from the register.
+    /// * `Error` - If an error occurs while reading the register.
     pub fn single_reg_read(&mut self, reg: u32) -> Result<u32, Error> {
+        const CORTUS_READ_MAX_REG: u32 = 0xFF;
         let r = reg.to_le_bytes();
-        let mut cmd = [Cmd::RegRead as u8, r[2], r[1], r[0], 0];
+
+        let (mut cmd, resp_crc_check) = if reg <= CORTUS_READ_MAX_REG {
+            ([Cmd::IntrRegRead as u8, r[1] | 0x80, r[0], 0, 0], false)
+        } else {
+            ([Cmd::RegRead as u8, r[2], r[1], r[0], 0], true)
+        };
+
         if self.crc {
             cmd[4] = crc7(&cmd[..4]);
             self.xfer.send(&cmd)?;
@@ -115,7 +142,7 @@ impl<X: Xfer> ChipAccess<X> {
         let mut rdbuf = [0xFF; 1];
         self.xfer.recv(&mut rdbuf)?;
         trace!("Cmd Bytes: {:x}", HexWrap { v: &rdbuf });
-        self.protocol_verify("single_reg_read:cmd", &rdbuf, &[Cmd::RegRead as u8])?;
+        self.protocol_verify("single_reg_read:cmd", &rdbuf, &[cmd[0]])?;
 
         self.xfer.recv(&mut rdbuf)?;
         trace!("Status Zero Bytes: {:x}", HexWrap { v: &rdbuf });
@@ -130,7 +157,9 @@ impl<X: Xfer> ChipAccess<X> {
         let mut data_buf = [0x00; 4];
         self.xfer.recv(&mut data_buf)?;
 
-        if self.crc {
+        // Note: Cortus register reads don't require CRC validation on responses
+        // while WINC register reads do require it.
+        if self.crc && resp_crc_check {
             let mut crcbuf = [0xFF; 2];
             self.xfer.recv(&mut crcbuf)?;
             trace!("Crc Bytes: {:x}", HexWrap { v: &crcbuf });
@@ -147,32 +176,70 @@ impl<X: Xfer> ChipAccess<X> {
     }
 
     // todo: change register argument to enum
+    /// Writes a value to the module's register.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The register address to write to.
+    /// * `val` - The value to write.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - If the value was successfully written.
+    /// * `Error` - If an error occurs while writing the value to the register.
     pub fn single_reg_write(&mut self, reg: u32, val: u32) -> Result<(), Error> {
-        // info!("write {:x} val {:x}", reg, val);
+        const CORTUS_WRITE_MAX_REG: u32 = 0x30;
         let v = val.to_le_bytes();
         let r = reg.to_le_bytes();
-        let mut cmd = [
-            Cmd::RegWrite as u8,
-            r[2],
-            r[1],
-            r[0],
-            v[3],
-            v[2],
-            v[1],
-            v[0],
-            0x00,
-        ];
-        if self.crc {
-            cmd[8] = crc7(&cmd[..8]);
-            self.xfer.send(&cmd)?;
+
+        // For Cortus register write, the total command packet size is 8 bytes,
+        // whereas for WINC register write, the packet size is 9 bytes.
+        let (mut cmd, crc_idx) = if reg <= CORTUS_WRITE_MAX_REG {
+            (
+                [
+                    Cmd::IntrRegWrite as u8,
+                    r[1] | 0x80,
+                    r[0],
+                    v[3],
+                    v[2],
+                    v[1],
+                    v[0],
+                    0x00,
+                    0x00,
+                ],
+                7usize,
+            )
         } else {
-            self.xfer.send(&cmd[..8])?;
+            (
+                [
+                    Cmd::RegWrite as u8,
+                    r[2],
+                    r[1],
+                    r[0],
+                    v[3],
+                    v[2],
+                    v[1],
+                    v[0],
+                    0x00,
+                ],
+                8usize,
+            )
+        };
+
+        if self.crc {
+            cmd[crc_idx] = crc7(&cmd[..crc_idx]);
+            self.xfer.send(&cmd[..=crc_idx])?;
+        } else {
+            self.xfer.send(&cmd[..crc_idx])?;
         }
 
         let mut rdbuf = [0x0; 1];
         self.xfer.recv(&mut rdbuf)?;
         trace!("Cmd Bytes: {:x}", HexWrap { v: &rdbuf });
-        self.protocol_verify("single_reg_write:cmd echo", &rdbuf, &[Cmd::RegWrite as u8])?;
+        // Skip the protocol verification for chip reset register.
+        if reg != super::constants::Regs::ChipReset.into() {
+            self.protocol_verify("single_reg_write:cmd echo", &rdbuf, &[cmd[0]])?;
+        }
 
         rdbuf[0] = 0;
         self.xfer.recv(&mut rdbuf)?;
@@ -181,6 +248,18 @@ impl<X: Xfer> ChipAccess<X> {
         // note : response doesn't have ACK or CRC
         Ok(())
     }
+
+    /// Reads a block of data from the module's DMA register.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The starting register address to read from.
+    /// * `data` - The buffer to store the read data.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - If the data was successfully read into the buffer.
+    /// * `Error` - If an error occurs during the DMA read operation.
     pub fn dma_block_read(&mut self, reg: u32, data: &mut [u8]) -> Result<(), Error> {
         let r = reg.to_le_bytes();
         let v = (data.len() as u32).to_le_bytes();
@@ -227,6 +306,17 @@ impl<X: Xfer> ChipAccess<X> {
         Ok(())
     }
 
+    /// Writes a block of data to the module's DMA register.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The starting register address to write to.
+    /// * `data` - The buffer containing the data to write.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - If the data was successfully written.
+    /// * `Error` - If an error occurs during the DMA write operation.
     pub fn dma_block_write(&mut self, reg: u32, data: &[u8]) -> Result<(), Error> {
         let r = reg.to_le_bytes();
         let v = (data.len() as u32).to_le_bytes();
@@ -267,6 +357,37 @@ impl<X: Xfer> ChipAccess<X> {
         self.xfer.recv(dmaackbuf)?;
         trace!("Dma ack Bytes: {:x}", HexWrap { v: dmaackbuf });
         self.protocol_verify("dma_block_write:ack", dmaackbuf, expected_ack)?;
+        Ok(())
+    }
+
+    /// Resets the SPI bus
+    ///
+    /// # Returns
+    ///
+    /// * `()` - If the bus was reset successfully.
+    /// * `Error` - If an error occurs while resetting the SPI bus.
+    pub(crate) fn bus_reset(&mut self) -> Result<(), Error> {
+        let mut cmd = [Cmd::BusReset as u8, 0xff, 0xff, 0xff, 0x00];
+        if self.crc {
+            cmd[4] = crc7(&cmd[..4]);
+            self.xfer.send(&cmd)?;
+        } else {
+            self.xfer.send(&cmd[..4])?;
+        }
+
+        let mut rdbuf = [0x0; 1];
+        // dummy read
+        self.xfer.recv(&mut rdbuf)?;
+        // check command response
+        self.xfer.recv(&mut rdbuf)?;
+        trace!("Cmd Bytes: {:x}", HexWrap { v: &rdbuf });
+        self.protocol_verify("bus_reset:cmd echo", &rdbuf, &[cmd[0]])?;
+        // check state response
+        rdbuf[0] = 0;
+        self.xfer.recv(&mut rdbuf)?;
+        trace!("Status zero Bytes: {:x}", HexWrap { v: &rdbuf });
+        self.protocol_verify("bus_reset:zero echo", &rdbuf, &[0])?;
+
         Ok(())
     }
 }
@@ -384,12 +505,12 @@ mod tests {
         let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(PrefixXfer::new(writer));
         chip.crc = false;
-        let res = chip.single_reg_read(0x10).unwrap();
+        let res = chip.single_reg_read(0x100).unwrap();
         assert_eq!(res, 0x04030201);
         assert_eq!(
             writebuf[..],
             [
-                0x81, 0, 4, 0xCA, 0, 0, 0x10, 0xA2, 0, 1, 0xCA, 0xA2, 0, 1, 0, 0xA2, 0, 1, 0xF0,
+                0x81, 0, 4, 0xCA, 0, 0x01, 0x00, 0xA2, 0, 1, 0xCA, 0xA2, 0, 1, 0, 0xA2, 0, 1, 0xF0,
                 0xA2, 0, 4, 1, 2, 3, 4
             ]
         );
@@ -405,13 +526,13 @@ mod tests {
         let writer = writebuf.as_mut_slice();
 
         let mut chip = ChipAccess::new(PrefixXfer::new(writer));
-        let res = chip.single_reg_read(0x10).unwrap();
+        let res = chip.single_reg_read(0x100).unwrap();
         assert_eq!(res, 0x04030201);
         assert_eq!(
             writebuf[..],
             [
-                0x81, 0, 5, 0xCA, 0, 0, 0x10, 138, 0xA2, 0, 1, 0xCA, 0xA2, 0, 1, 0x00, 0xA2, 0, 1,
-                0xF0, 0xA2, 0, 4, 1, 2, 3, 4, 0xA2, 0, 2, 68, 1
+                0x81, 0, 5, 0xCA, 0, 0x01, 0x00, 0xAE, 0xA2, 0, 1, 0xCA, 0xA2, 0, 1, 0x00, 0xA2, 0,
+                1, 0xF0, 0xA2, 0, 4, 1, 2, 3, 4, 0xA2, 0, 2, 68, 1
             ]
         );
     }
@@ -422,7 +543,7 @@ mod tests {
         let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(writer);
         chip.crc = false;
-        let res = chip.single_reg_read(0x10);
+        let res = chip.single_reg_read(0x100);
         assert_eq!(res, Ok(0x04030201));
     }
     #[test]
@@ -433,7 +554,67 @@ mod tests {
         ];
         let writer = writebuf.as_mut_slice();
         let mut chip = ChipAccess::new(writer);
-        let res = chip.single_reg_read(0x10);
+        let res = chip.single_reg_read(0x100);
         assert_eq!(res, Ok(0x04030201));
+    }
+
+    #[test]
+    fn test_read_intr_reg_no_crc() {
+        let mut writebuf = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC4, 0xFF, 0xFF, 0xFF,
+            0x00, 0xFF, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04,
+        ];
+        let writer = writebuf.as_mut_slice();
+        let mut chip = ChipAccess::new(PrefixXfer::new(writer));
+        chip.crc = false;
+        let res = chip.single_reg_read(0x10).unwrap();
+        assert_eq!(res, 0x04030201);
+        assert_eq!(
+            writebuf[..],
+            [
+                0x81, 0, 4, 0xC4, 0x80, 0x10, 0x00, 0xA2, 0, 1, 0xC4, 0xA2, 0, 1, 0, 0xA2, 0, 1,
+                0xF0, 0xA2, 0, 4, 1, 2, 3, 4
+            ]
+        );
+    }
+
+    #[test]
+    fn test_read_intr_reg_crc() {
+        let mut writebuf = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC4, 0xFF, 0xFF,
+            0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04,
+        ];
+        let writer = writebuf.as_mut_slice();
+
+        let mut chip = ChipAccess::new(PrefixXfer::new(writer));
+        let res = chip.single_reg_read(0x10).unwrap();
+        assert_eq!(res, 0x04030201);
+        assert_eq!(
+            writebuf[..],
+            [
+                0x81, 0, 5, 0xC4, 0x80, 0x10, 0x00, 0x64, 0xA2, 0, 1, 0xC4, 0xA2, 0, 1, 0x00, 0xA2,
+                0, 1, 0xF0, 0xA2, 0, 4, 1, 2, 3, 4
+            ]
+        );
+    }
+
+    #[test]
+    fn test_bus_reset() {
+        let mut writebuf = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xCF, 0xFF, 0xFF, 0xFF, 0x00,
+        ];
+        let writer = writebuf.as_mut_slice();
+        let mut chip = ChipAccess::new(PrefixXfer::new(writer));
+
+        assert!(chip.bus_reset().is_ok());
+
+        assert_eq!(
+            writebuf[..],
+            [
+                0x81, 0, 5, 0xCF, 0xFF, 0xFF, 0xFF, 0xAA, 0xA2, 0, 1, 0xFF, 0xA2, 0, 1, 0xCF, 0xA2,
+                0, 1, 0
+            ]
+        );
     }
 }
