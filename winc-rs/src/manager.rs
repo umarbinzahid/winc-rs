@@ -336,7 +336,7 @@ impl<X: Xfer> Manager<X> {
 
     pub fn configure_spi_packetsize(&mut self) -> Result<(), Error> {
         let mut conf = self.chip.single_reg_read(Regs::SpiConfig.into())?;
-        conf &= 0xFFFFFF0F; // clear
+        conf &= 0xFFFFFF8F;//0xFFFFFF0F; // clear
         conf |= 0x00000050; // set to 8k packet size
         self.chip.single_reg_write(Regs::SpiConfig.into(), conf)?;
         trace!("Set spiconfig to {:x}", conf);
@@ -509,7 +509,7 @@ impl<X: Xfer> Manager<X> {
             data_packet,
         )?;
 
-        self.chip.dma_block_write(
+        self.chip.dma_block_write_retry(
             self.not_a_reg_ctrl_4_dma,
             &[
                 grpval, opp, pkglen[0], pkglen[1], 0x00, // unused bytes
@@ -553,7 +553,7 @@ impl<X: Xfer> Manager<X> {
             false,
         )?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &arr)?;
+            .dma_block_write_retry(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &arr)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 

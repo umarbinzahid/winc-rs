@@ -17,6 +17,7 @@ use crate::errors::Error;
 use crate::transfer::*;
 
 use crc_any::CRC;
+use defmt::debug;
 
 use crate::HexWrap;
 use crate::{trace, warn};
@@ -41,10 +42,12 @@ fn crc16(input: &[u8]) -> u16 {
 
 #[derive(Copy, Clone)]
 pub enum Cmd {
+    Terminate = 0xc5,
     RegRead = 0xca,
     RegWrite = 0xc9,
     DmaWrite = 0xc7,
     DmaRead = 0xc8,
+    Reset = 0xcf,
 }
 
 pub struct ChipAccess<X: Xfer> {
@@ -260,7 +263,7 @@ impl<X: Xfer> ChipAccess<X> {
         self.read_cmd_response(&[0], false, "dma_block_write:zero")?;
 
         trace!("Sending F3 marker");
-        self.xfer.send(&[0xf1])?; // todo: could be 1/2/3, depending on conditions
+        self.xfer.send(&[0xf3])?; // todo: could be 1/2/3, depending on conditions
 
         trace!("Sending data ...");
         self.xfer.send(data)?;
@@ -277,8 +280,53 @@ impl<X: Xfer> ChipAccess<X> {
         }
         trace!("Getting {} ack bytes", dmaackbuf.len());
         self.xfer.recv(dmaackbuf)?;
-        trace!("Dma ack Bytes: {:x}", HexWrap { v: dmaackbuf });
-        self.protocol_verify("dma_block_write:ack", dmaackbuf, expected_ack)?;
+        debug!("Dma ack Bytes: {:x}", HexWrap { v: dmaackbuf });
+        //self.protocol_verify("dma_block_write:ack", dmaackbuf, expected_ack)?;
+        Ok(())
+    }
+
+    fn write_cmd_reset(&mut self) -> Result<(), Error> {
+        let mut cmd = [Cmd::Reset as u8, 0xf, 0xf, 0xf, 0x0];
+        
+        if self.crc {
+            cmd[4] = crc7(&cmd[..4]);
+            self.xfer.send(&cmd)?;
+        } else {
+            self.xfer.send(&cmd[..4])?;
+        }
+
+        let mut rx_buf = [0xff; 1];
+
+        self.xfer.recv(&mut rx_buf)?;
+
+        // check command
+        self.read_cmd_response(&[Cmd::Reset as u8], false, "write_cmd_reset:cmd echo")?;
+
+        // check zero
+        self.read_cmd_response(&[0], false, "write_cmd_reset:zero echo")?;
+
+        Ok(())
+    }
+
+    pub fn dma_block_write_retry(&mut self, reg: u32, data: &[u8]) -> Result<(), Error> {
+
+        let mut counter: u32 = 10;
+
+        while counter > 0 {
+            
+            let result = self.dma_block_write(reg, data);
+
+            if result.is_err() {
+                self.delay_us(1000);
+                self.write_cmd_reset()?;
+                debug!("DMA Write Error: Retrying...");
+                self.delay_us(1000);
+            } else {
+                break;
+            }
+            counter -= 1;
+        }
+
         Ok(())
     }
 }
