@@ -30,33 +30,55 @@ use crate::{debug, error, trace};
 use chip_access::ChipAccess;
 #[cfg(feature = "experimental-ota")]
 pub use constants::OtaUpdateError;
+
 #[cfg(feature = "wep")]
 pub use constants::WepKeyIndex;
-pub use constants::{AuthType, PingError, SocketError, WifiChannel, WifiConnError, WifiConnState}; // todo response shouldn't be leaking
+
+pub use constants::{AuthType, PingError, SocketError, WifiChannel, WifiConnError, WifiConnState};
 use constants::{IpCode, Regs, WifiRequest, WifiResponse};
 
 #[cfg(feature = "flash-rw")]
 pub(crate) use constants::FLASH_PAGE_SIZE;
+
 #[cfg(feature = "experimental-ota")]
 pub(crate) use constants::{OtaRequest, OtaResponse, OtaUpdateStatus};
+
 pub(crate) use constants::{PRNG_DATA_LENGTH, SOCKET_BUFFER_MAX_LENGTH};
+
+#[cfg(feature = "ssl")]
+pub(crate) use self::{
+    constants::{SslRequest, SslResponse},
+    net_types::SslCallbackInfo,
+};
+
+#[cfg(feature = "ssl")]
+pub use self::{
+    constants::{SslCertExpiryOpt, SslCipherSuite},
+    net_types::{SslSockConfig, SslSockOpts},
+};
+
+#[cfg(feature = "experimental-ecc")]
+pub use self::{
+    constants::EccRequestType,
+    net_types::{EccInfo, EccPoint, EcdhInfo, EcdsaSignInfo},
+};
+
+#[cfg(feature = "experimental-ecc")]
+pub(crate) use net_types::EccRequest;
 
 pub use net_types::{
     AccessPoint, Credentials, HostName, ProvisioningInfo, S8Password, S8Username, SocketOptions,
-    Ssid, SslSockOpts, TcpSockOpts, UdpSockOpts, WpaKey,
+    Ssid, TcpSockOpts, UdpSockOpts, WpaKey,
 };
 
 #[cfg(feature = "wep")]
 pub use net_types::WepKey;
 
 use requests::*;
-pub use responses::IPConf;
 use responses::*;
-pub use responses::{ConnectionInfo, ScanResult};
+pub use responses::{ConnectionInfo, FirmwareInfo, IPConf, ScanResult};
 
 use core::net::{Ipv4Addr, SocketAddrV4};
-
-pub use responses::FirmwareInfo;
 
 /// HIF Response Group.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -68,6 +90,8 @@ pub(crate) enum HifGroup {
     Ip(IpCode),
     #[cfg(feature = "experimental-ota")]
     Ota(OtaResponse),
+    #[cfg(feature = "ssl")]
+    Ssl(SslResponse),
 }
 
 /// HIF Request Group.
@@ -77,6 +101,8 @@ enum HifRequest {
     Ip(IpCode),
     #[cfg(feature = "experimental-ota")]
     Ota(OtaRequest),
+    #[cfg(feature = "ssl")]
+    Ssl(SslRequest),
 }
 
 /// Implementation to convert `HifRequest` to `u8` value.
@@ -87,6 +113,8 @@ impl From<HifRequest> for u8 {
             HifRequest::Ip(_) => 2,
             #[cfg(feature = "experimental-ota")]
             HifRequest::Ota(_) => 4,
+            #[cfg(feature = "ssl")]
+            HifRequest::Ssl(_) => 5,
         }
     }
 }
@@ -99,6 +127,8 @@ impl From<[u8; 2]> for HifGroup {
             2 => Self::Ip(v[1].into()),
             #[cfg(feature = "experimental-ota")]
             4 => Self::Ota(v[1].into()),
+            #[cfg(feature = "ssl")]
+            5 => Self::Ssl(v[1].into()),
             _ => Self::Unhandled,
         }
     }
@@ -112,6 +142,8 @@ impl From<HifGroup> for u8 {
             HifGroup::Ip(_) => 2,
             #[cfg(feature = "experimental-ota")]
             HifGroup::Ota(_) => 4,
+            #[cfg(feature = "ssl")]
+            HifGroup::Ssl(_) => 5,
             _ => 0xFF,
         }
     }
@@ -179,6 +211,13 @@ pub trait EventListener {
     fn on_provisioning(&mut self, ssid: Ssid, key: WpaKey, security: AuthType, status: bool);
     #[cfg(feature = "experimental-ota")]
     fn on_ota(&mut self, status: OtaUpdateStatus, error: OtaUpdateError);
+    #[cfg(feature = "ssl")]
+    fn on_ssl(
+        &mut self,
+        ssl_res: SslResponse,
+        cipher_suite: Option<u32>,
+        #[cfg(feature = "experimental-ecc")] ecc_req: Option<EccRequest>,
+    );
 }
 
 pub struct Manager<X: Xfer> {
@@ -669,6 +708,8 @@ impl<X: Xfer> Manager<X> {
             HifRequest::Ip(opcode) => opcode.into(),
             #[cfg(feature = "experimental-ota")]
             HifRequest::Ota(opcode) => opcode.into(),
+            #[cfg(feature = "ssl")]
+            HifRequest::Ssl(opcode) => opcode.into(),
         };
         // Group ID.
         let grpval = req.into();
@@ -712,6 +753,39 @@ impl<X: Xfer> Manager<X> {
             //reg = dma_addr << 2; reg |= NBIT1;
             val,
         )
+    }
+
+    /// Determines the appropriate SSL `IpCode` variant for the given socket.
+    ///
+    /// If the provided `socket` has SSL enabled, the function converts the
+    /// *base* `IpCode` (e.g., `IpCode::Connect`) into its SSL counterpart
+    /// (e.g., `IpCode::SslConnect`). When SSL is not active, the original `base`
+    /// value is returned unchanged.
+    ///
+    /// # Arguments
+    ///
+    /// * `_socket` – A reference to the `Socket` whose SSL configuration will be inspected.
+    /// * `base` – The `IpCode` command to convert to its SSL counterpart.
+    ///
+    /// # Returns
+    ///
+    /// * An `IpCode::Ssl...` variant when SSL is enabled.
+    /// * The original `base` value when SSL is disabled.
+    fn get_ssl_ip_code(&mut self, _socket: &Socket, base: IpCode) -> IpCode {
+        #[cfg(feature = "ssl")]
+        if (_socket.get_ssl_cfg() & u8::from(SslSockConfig::EnableSSL))
+            == u8::from(SslSockConfig::EnableSSL)
+        {
+            return match base {
+                IpCode::Connect => IpCode::SslConnect,
+                IpCode::Send => IpCode::SslSend,
+                IpCode::Recv => IpCode::SslRecv,
+                IpCode::Bind => IpCode::SslBind,
+                IpCode::Close => IpCode::SslClose,
+                _ => base,
+            };
+        }
+        base
     }
 
     pub fn send_default_connect(&mut self) -> Result<(), Error> {
@@ -795,10 +869,23 @@ impl<X: Xfer> Manager<X> {
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, req)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
+
+    /// Sends a request to bind the socket to the specified IPv4 address and port.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to bind.
+    /// * `address` - The local IPv4 address and port to bind the socket to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the bind request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while sending the bind request.
     pub fn send_bind(&mut self, socket: Socket, address: SocketAddrV4) -> Result<(), Error> {
-        // todo: address family is useless here
-        let req = write_bind_req(socket, 2, address)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Bind), &req, false)?;
+        let req = write_bind_req(socket, address)?;
+        let cmd = self.get_ssl_ip_code(&socket, IpCode::Bind);
+
+        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
@@ -811,13 +898,26 @@ impl<X: Xfer> Manager<X> {
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
+    /// Sends a request to initiate a socket connection to the specified IPv4 address.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to use for connecting to the server.
+    /// * `address` - The IPv4 address and port to connect to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the connection request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while sending the connection request.
     pub fn send_socket_connect(
         &mut self,
         socket: Socket,
         address: SocketAddrV4,
     ) -> Result<(), Error> {
-        let req = write_connect_req(socket, 2, address, 0)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Connect), &req, false)?;
+        let req = write_connect_req(socket, 2, address, socket.get_ssl_cfg())?;
+        let cmd = self.get_ssl_ip_code(&socket, IpCode::Connect);
+
+        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
@@ -842,6 +942,17 @@ impl<X: Xfer> Manager<X> {
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
+    /// Sends a TCP send request.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket through which the data will be sent.
+    /// * `data` - A byte slice containing the data to send.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the data was successfully sent.
+    /// * `Err(Error)` - If an error occurred during the send operation.
     pub fn send_send(&mut self, socket: Socket, data: &[u8]) -> Result<(), Error> {
         const TCP_IP_HEADER_LENGTH: usize = 40;
         const TCP_TX_PACKET_OFFSET: usize = IP_PACKET_OFFSET + TCP_IP_HEADER_LENGTH;
@@ -853,19 +964,59 @@ impl<X: Xfer> Manager<X> {
             SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0),
             data.len(),
         )?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Send), &req, true)?;
+
+        let cmd = self.get_ssl_ip_code(&socket, IpCode::Send);
+
+        let offset = {
+            #[cfg(feature = "ssl")]
+            {
+                if matches!(cmd, IpCode::SslSend) {
+                    // Offset received from connect command response.
+                    let data_offset = socket.get_ssl_data_offset() as usize;
+                    match data_offset.checked_sub(HIF_HEADER_OFFSET) {
+                        Some(offset) => offset,
+                        None => {
+                            error!("Valid SSL data offset was not received from the WINC module.");
+                            return Err(Error::Failed);
+                        }
+                    }
+                } else {
+                    TCP_TX_PACKET_OFFSET
+                }
+            }
+
+            #[cfg(not(feature = "ssl"))]
+            {
+                TCP_TX_PACKET_OFFSET
+            }
+        };
+
+        self.write_hif_header_impl(HifRequest::Ip(cmd), &req, true, Some((data.len(), offset)))?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma + TCP_TX_PACKET_OFFSET as u32,
+            self.not_a_reg_ctrl_4_dma + (offset + HIF_HEADER_OFFSET) as u32,
             data,
         )?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
+    /// Sends a request to receive data from the specified socket, with a timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket from which to receive data.
+    /// * `timeout` - The timeout duration in milliseconds.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the receive request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while sending the receive request.
     pub fn send_recv(&mut self, socket: Socket, timeout: u32) -> Result<(), Error> {
         let req = write_recv_req(socket, timeout)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Recv), &req, false)?;
+        let cmd = self.get_ssl_ip_code(&socket, IpCode::Recv);
+
+        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
@@ -879,9 +1030,21 @@ impl<X: Xfer> Manager<X> {
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
+    /// Sends a request to close the specified socket.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to close.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the close request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while sending the request.
     pub fn send_close(&mut self, socket: Socket) -> Result<(), Error> {
         let req = write_close_req(socket)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Close), &req, false)?;
+        let cmd = self.get_ssl_ip_code(&socket, IpCode::Close);
+
+        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
@@ -917,6 +1080,7 @@ impl<X: Xfer> Manager<X> {
     ///
     /// * `()` - If the request is successfully sent.
     /// * `Error` - If an error occurred while preparing or sending the request.
+    #[cfg(feature = "ssl")]
     pub fn send_ssl_setsockopt(
         &mut self,
         socket: Socket,
@@ -1041,7 +1205,7 @@ impl<X: Xfer> Manager<X> {
     ///
     /// # Arguments
     ///
-    /// * `server_url` - Server URL from where firware image will be downloaded.
+    /// * `server_url` - Server URL from where firmware image will be downloaded.
     /// * `cortus_update` - Whether the OTA update is for cortus processor or winc1500 stack.
     ///
     /// # Returns
@@ -1425,6 +1589,161 @@ impl<X: Xfer> Manager<X> {
         self.chip
             .dma_block_read(Regs::FlashSharedMemory.into(), buffer)
     }
+
+    /// Sends a request to create an SSL socket.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to enable SSL on.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while preparing or sending the request.
+    #[cfg(feature = "ssl")]
+    pub(crate) fn send_ssl_sock_create(&mut self, socket: Socket) -> Result<(), Error> {
+        let req: [u8; 4] = [socket.v, 0, 0, 0];
+
+        self.write_hif_header(HifRequest::Ip(IpCode::SslCreate), &req, false)?;
+
+        self.chip
+            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
+    /// Sends a request to configure the SSL certificate expiry option.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - The SSL certificate expiry option to configure.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while preparing or sending the request.
+    #[cfg(feature = "ssl")]
+    pub(crate) fn send_ssl_cert_expiry(&mut self, opt: SslCertExpiryOpt) -> Result<(), Error> {
+        let req = u32::to_le_bytes(opt.into());
+
+        self.write_hif_header(HifRequest::Ip(IpCode::SslExpCheck), &req, false)?;
+
+        self.chip
+            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
+    /// Sends an ECC response to the module.
+    ///
+    /// # Arguments
+    ///
+    /// * `ecc_info` - A reference to the ECC operation information.
+    /// * `ecdh_info` - An optional reference to the ECDH operation information.
+    /// * `resp_buffer` - A buffer containing the ECC response data to send.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the response was successfully sent.
+    /// * `Err(Error)` - If an error occurred while preparing or sending the response.
+    #[cfg(feature = "experimental-ecc")]
+    pub(crate) fn send_ecc_resp(
+        &mut self,
+        ecc_info: &EccInfo,
+        ecdh_info: Option<&EcdhInfo>,
+        resp_buffer: &[u8],
+    ) -> Result<(), Error> {
+        let req = write_ssl_ecc_resp(ecc_info, ecdh_info)?;
+
+        self.write_hif_header_impl(
+            HifRequest::Ssl(SslRequest::SendEccResponse),
+            &req,
+            true,
+            Some((resp_buffer.len(), req.len())),
+        )?;
+
+        // write the control packet
+        let mut reg = self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32;
+        self.chip.dma_block_write(reg, &req)?;
+
+        // write the data packet
+        reg += req.len() as u32;
+        self.chip.dma_block_write(reg, resp_buffer)?;
+
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
+    /// Reads ECC information (curve type, hash algorithm, and signature) from the WINC module.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The register address to start reading from.
+    /// * `resp_buff` - A mutable buffer to store the response data.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the data was successfully read.
+    /// * `Err(Error)` - If an error occurred while reading the data.
+    #[cfg(feature = "experimental-ecc")]
+    pub(crate) fn read_ecc_info(
+        &mut self,
+        address: u32,
+        resp_buff: &mut [u8],
+    ) -> Result<(), Error> {
+        let result = self
+            .chip
+            .dma_block_read(address + HIF_HEADER_OFFSET as u32, resp_buff);
+
+        // Set the RX done if error occurs, this will clear the information
+        // from the module.
+        if result.is_err() {
+            error!("Failed to read SSL info at address {:x}", address);
+            error!("Sending request to stop reading from the module.");
+            let reg = self.chip.single_reg_read(Regs::WifiHostRcvCtrl0.into())?;
+            self.chip
+                .single_reg_write(Regs::WifiHostRcvCtrl0.into(), reg | 2)?;
+
+            return Err(Error::ReadError);
+        }
+
+        Ok(())
+    }
+
+    /// Sends a request to stop reading ECC information from the module.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If ECC information reading was successfully disabled.
+    /// * `Err(Error)` - If an error occurred while updating the module state.
+    #[cfg(feature = "experimental-ecc")]
+    pub(crate) fn send_ecc_read_complete(&mut self) -> Result<(), Error> {
+        let reg = self.chip.single_reg_read(Regs::WifiHostRcvCtrl0.into())?;
+        self.chip
+            .single_reg_write(Regs::WifiHostRcvCtrl0.into(), reg | 2)
+    }
+
+    /// Sends a request to set the desired SSL cipher suites.
+    ///
+    /// # Arguments
+    ///
+    /// * `cipher_bitmap` - A bitmask (`u32`) representing the cipher suites to enable.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while updating the module state.
+    #[cfg(feature = "ssl")]
+    pub(crate) fn send_ssl_set_cipher_suite(&mut self, cipher_bitmap: u32) -> Result<(), Error> {
+        let req = cipher_bitmap.to_le_bytes();
+
+        self.write_hif_header(HifRequest::Ssl(SslRequest::SetCipherSuites), &req, false)?;
+
+        self.chip
+            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
     // #endregion write
 }
 
@@ -1506,7 +1825,7 @@ mod tests {
         assert_eq!(
             slice,
             &[
-                2, 0, // addres family
+                2, 0, // address family
                 0xBA, 0xDE, // port
                 192, 168, 5, 196, // ip
                 42, 0, //socket + dummy
@@ -1527,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn test_connnect() {
+    fn test_connect() {
         let mut buff = [0u8; 100];
         let mut writer = buff.as_mut_slice();
         let mut mgr = make_manager(&mut writer);
@@ -1746,5 +2065,140 @@ mod tests {
         let res = mgr.write_hif_header_impl(req, &payload, true, data_pkt);
 
         assert_eq!(res, Err(Error::BufferError));
+    }
+
+    #[test]
+    fn test_get_ip_code_no_ssl() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+        let sock = Socket::new(1, 1);
+        let ip_code = IpCode::Connect;
+
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+
+        assert_eq!(new_ip_code, ip_code);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_get_ip_code_ssl_enabled() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+        let mut sock = Socket::new(1, 1);
+        let ip_code = IpCode::Connect;
+
+        sock.set_ssl_cfg(SslSockConfig::EnableSSL.into(), true);
+        sock.set_ssl_cfg(SslSockConfig::BypassX509Verification.into(), true);
+
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+
+        assert_eq!(new_ip_code, IpCode::SslConnect);
+
+        let ip_code = IpCode::Bind;
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+
+        assert_eq!(new_ip_code, IpCode::SslBind);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_get_ip_code_ssl_not_enabled() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+        let mut sock = Socket::new(1, 1);
+        let ip_code = IpCode::Send;
+
+        sock.set_ssl_cfg(SslSockConfig::BypassX509Verification.into(), true);
+
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+
+        assert_eq!(new_ip_code, ip_code);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_get_ip_code_ssl_not_applicable() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+        let mut sock = Socket::new(1, 1);
+        let ip_code = IpCode::RecvFrom;
+
+        sock.set_ssl_cfg(SslSockConfig::EnableSSL.into(), true);
+
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+
+        assert_eq!(new_ip_code, ip_code);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_get_ip_code_verify_ssl_opts() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+        let mut sock = Socket::new(1, 1);
+
+        sock.set_ssl_cfg(SslSockConfig::EnableSSL.into(), true);
+
+        // Connect + Send is verified from other tests.
+
+        // Bind
+        let ip_code = IpCode::Bind;
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+        assert_eq!(new_ip_code, IpCode::SslBind);
+
+        // Recv
+        let ip_code = IpCode::Recv;
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+        assert_eq!(new_ip_code, IpCode::SslRecv);
+
+        // Close
+        let ip_code = IpCode::Close;
+        let new_ip_code = mgr.get_ssl_ip_code(&sock, ip_code);
+        assert_eq!(new_ip_code, IpCode::SslClose);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_ssl_send_success() {
+        let mut buff = [0u8; 120];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+
+        let mut sock = Socket::new(7, 522);
+        sock.set_ssl_cfg(SslSockConfig::EnableSSL.into(), true);
+        sock.set_ssl_data_offset(100);
+
+        assert_eq!(mgr.send_send(sock, &[42]), Ok(()));
+        assert_eq!(buff[CMD_OFFSET], u8::from(IpCode::SslSend));
+        let slice = &buff[DATA_OFFSET..DATA_OFFSET + 16];
+        assert_eq!(
+            slice,
+            &[
+                7, 0, // socket, dummy
+                1, 0, // length
+                2, 0, // address family
+                0, 0, 0, 0, 0, 0, // port + ip zeroed
+                10, 2, // session,
+                0, 0 // dummy
+            ]
+        );
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_ssl_send_offset_failed() {
+        let mut buff = [0u8; 10];
+        let mut writer = buff.as_mut_slice();
+        let mut mgr = make_manager(&mut writer);
+
+        let mut sock = Socket::new(7, 522);
+        sock.set_ssl_cfg(SslSockConfig::EnableSSL.into(), true);
+
+        assert_eq!(mgr.send_send(sock, &[42]), Err(Error::Failed));
     }
 }

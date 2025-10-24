@@ -35,7 +35,7 @@ pub enum StackError {
     /// Operation was attempted in wrong state
     InvalidState,
     AlreadyConnected,
-    /// Acess point join failed
+    /// Access point join failed
     ApJoinFailed(WifiConnError),
     /// Scan operation failed
     ApScanFailed(WifiConnError),
@@ -45,6 +45,8 @@ pub enum StackError {
     SocketNotFound,
     /// Parameters are not valid.
     InvalidParameters,
+    /// Response from the module is invalid or malformed.
+    InvalidResponse,
     #[cfg(feature = "experimental-ota")]
     /// Ota Error
     OtaFail(OtaUpdateError),
@@ -124,6 +126,7 @@ impl core::fmt::Display for StackError {
             Self::ContinueOperation => write!(f, "Continue operation"),
             Self::SocketNotFound => write!(f, "Socket not found"),
             Self::InvalidParameters => write!(f, "Invalid parameters"),
+            Self::InvalidResponse => write!(f, "Invalid response"),
             #[cfg(feature = "experimental-ota")]
             Self::OtaFail(err) => write!(f, "Ota failure: {:?}", err),
         }

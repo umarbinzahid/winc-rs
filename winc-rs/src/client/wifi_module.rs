@@ -2,21 +2,18 @@ use crate::errors::CommError as Error;
 
 use embedded_nal::nb;
 
-use super::Handle;
-use crate::error;
-use crate::manager::{AccessPoint, AuthType, FirmwareInfo, IPConf, ScanResult, Ssid, WifiChannel};
-use crate::manager::{Credentials, HostName, ProvisioningInfo, WifiConnError};
-use crate::manager::{SocketOptions, TcpSockOpts, UdpSockOpts};
-use crate::stack::sock_holder::SocketStore;
+use crate::manager::{
+    AccessPoint, AuthType, Credentials, FirmwareInfo, HostName, IPConf, ProvisioningInfo,
+    ScanResult, SocketOptions, Ssid, TcpSockOpts, UdpSockOpts, WifiChannel, WifiConnError,
+};
+#[cfg(feature = "ssl")]
+use crate::manager::{SslSockConfig, SslSockOpts};
 
-use super::PingResult;
-use super::StackError;
-use super::WincClient;
-use super::Xfer;
+use crate::stack::{sock_holder::SocketStore, socket_callbacks::WifiModuleState};
 
-use crate::stack::socket_callbacks::WifiModuleState;
+use super::{Handle, PingResult, StackError, WincClient, Xfer};
 
-use crate::info;
+use crate::{error, info};
 
 // 1 minute max, if no other delays are added
 const AP_CONNECT_TIMEOUT_MILLISECONDS: u32 = 60_000;
@@ -490,7 +487,7 @@ impl<X: Xfer> WincClient<'_, X> {
     ///
     /// # Returns
     ///
-    /// * `()` - Access point mode is successfully disbaled.
+    /// * `()` - Access point mode is successfully disabled.
     /// * `StackError` - If an error occurs while disabling access point mode.
     pub fn disable_access_point(&mut self) -> Result<(), StackError> {
         if self.callbacks.state == WifiModuleState::AccessPoint {
@@ -543,8 +540,24 @@ impl<X: Xfer> WincClient<'_, X> {
                     .ok_or(StackError::SocketNotFound)?;
 
                 match opts {
+                    #[cfg(feature = "ssl")]
                     TcpSockOpts::Ssl(ssl_opts) => {
-                        self.manager.send_ssl_setsockopt(*sock, ssl_opts)?;
+                        match *ssl_opts {
+                            SslSockOpts::SetSni(_) => {
+                                self.manager.send_ssl_setsockopt(*sock, ssl_opts)?;
+                            }
+                            SslSockOpts::Config(cfg, en) => {
+                                if cfg == SslSockConfig::EnableSSL && en {
+                                    if (sock.get_ssl_cfg() & u8::from(cfg)) == cfg.into() {
+                                        return Ok(());
+                                    } else {
+                                        self.manager.send_ssl_sock_create(*sock)?;
+                                    }
+                                }
+                                // Set the SSL flags
+                                sock.set_ssl_cfg(cfg.into(), en);
+                            }
+                        }
                     }
                     TcpSockOpts::ReceiveTimeout(timeout) => {
                         // Receive timeout are handled by winc stack not by module.
@@ -572,6 +585,9 @@ mod tests {
     #[cfg(feature = "wep")]
     use crate::{WepKey, WepKeyIndex};
     use embedded_nal::{TcpClientStack, UdpClientStack};
+
+    #[cfg(feature = "ssl")]
+    use crate::manager::SslSockConfig;
 
     #[test]
     fn test_heartbeat() {
@@ -954,7 +970,7 @@ mod tests {
         // set the module state to unconnected.
         client.callbacks.state = WifiModuleState::Unconnected;
 
-        let result = nb::block!(client.provisioning_mode(&ap, &hostname, false, 1500)); // Time is in miliseconds
+        let result = nb::block!(client.provisioning_mode(&ap, &hostname, false, 1500)); // Time is in milliseconds
 
         assert!(result.is_err());
         if let Err(err) = result {
@@ -1131,6 +1147,7 @@ mod tests {
         assert_eq!(result.err(), Some(StackError::SocketNotFound));
     }
 
+    #[cfg(feature = "ssl")]
     #[test]
     fn test_tcp_sock_opt_set_sni() {
         let mut client = make_test_client();
@@ -1175,5 +1192,62 @@ mod tests {
         let (sock, _) = client.callbacks.tcp_sockets.get(socket).unwrap();
 
         assert_eq!(sock.get_recv_timeout(), timeout);
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_tcp_ssl_cfg() {
+        let mut client = make_test_client();
+
+        let ssl_opt = SocketOptions::config_ssl(SslSockConfig::EnableSSL, true);
+        let socket = TcpClientStack::socket(&mut client).unwrap();
+
+        let result = client.set_socket_option(&socket, &ssl_opt);
+
+        assert!(result.is_ok());
+
+        let (sock, _) = client.callbacks.tcp_sockets.get(socket).unwrap();
+
+        assert_eq!(sock.get_ssl_cfg(), u8::from(SslSockConfig::EnableSSL));
+    }
+
+    #[cfg(feature = "ssl")]
+    #[test]
+    fn test_tcp_ssl_cfg_disable() {
+        let mut client = make_test_client();
+        let socket = TcpClientStack::socket(&mut client).unwrap();
+
+        // Enable first SSL config.
+        let ssl_opt = SocketOptions::config_ssl(SslSockConfig::EnableSSL, true);
+        let result = client.set_socket_option(&socket, &ssl_opt);
+        assert!(result.is_ok());
+
+        // Enable second config
+        let ssl_opt = SocketOptions::config_ssl(SslSockConfig::EnableSniValidation, true);
+        let result = client.set_socket_option(&socket, &ssl_opt);
+        assert!(result.is_ok());
+
+        // check the combined value
+        {
+            let (sock, _) = client.callbacks.tcp_sockets.get(socket).unwrap();
+
+            assert_eq!(
+                sock.get_ssl_cfg(),
+                (u8::from(SslSockConfig::EnableSSL))
+                    | (u8::from(SslSockConfig::EnableSniValidation))
+            );
+        }
+
+        // Disable the first one
+        let ssl_opt = SocketOptions::config_ssl(SslSockConfig::EnableSSL, false);
+        let result = client.set_socket_option(&socket, &ssl_opt);
+        assert!(result.is_ok());
+
+        // check if first value is disabled
+        let (sock, _) = client.callbacks.tcp_sockets.get(socket).unwrap();
+        assert_eq!(
+            sock.get_ssl_cfg(),
+            u8::from(SslSockConfig::EnableSniValidation)
+        );
     }
 }
