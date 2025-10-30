@@ -973,13 +973,11 @@ impl<X: Xfer> Manager<X> {
                 if matches!(cmd, IpCode::SslSend) {
                     // Offset received from connect command response.
                     let data_offset = socket.get_ssl_data_offset() as usize;
-                    match data_offset.checked_sub(HIF_HEADER_OFFSET) {
-                        Some(offset) => offset,
-                        None => {
-                            error!("Valid SSL data offset was not received from the WINC module.");
-                            return Err(Error::Failed);
-                        }
+                    if data_offset == 0 {
+                        error!("Attempted to send on an SSL socket with an invalid data offset.");
+                        return Err(Error::Failed);
                     }
+                    data_offset
                 } else {
                     TCP_TX_PACKET_OFFSET
                 }
@@ -994,10 +992,9 @@ impl<X: Xfer> Manager<X> {
         self.write_hif_header_impl(HifRequest::Ip(cmd), &req, true, Some((data.len(), offset)))?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma + (offset + HIF_HEADER_OFFSET) as u32,
-            data,
-        )?;
+        // The offset already includes the HIF_HEADER_OFFSET, so it is not added here.
+        self.chip
+            .dma_block_write(self.not_a_reg_ctrl_4_dma + offset as u32, data)?;
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
     }
 
