@@ -34,7 +34,9 @@ pub use constants::OtaUpdateError;
 #[cfg(feature = "wep")]
 pub use constants::WepKeyIndex;
 
-pub use constants::{AuthType, PingError, SocketError, WifiChannel, WifiConnError, WifiConnState};
+pub use constants::{
+    AuthType, BootMode, PingError, SocketError, WifiChannel, WifiConnError, WifiConnState,
+};
 use constants::{IpCode, Regs, WifiRequest, WifiResponse};
 
 #[cfg(feature = "flash-rw")]
@@ -67,8 +69,8 @@ pub use self::{
 pub(crate) use net_types::EccRequest;
 
 pub use net_types::{
-    AccessPoint, Credentials, HostName, ProvisioningInfo, S8Password, S8Username, SocketOptions,
-    Ssid, TcpSockOpts, UdpSockOpts, WpaKey,
+    AccessPoint, Credentials, HostName, MacAddress, ProvisioningInfo, S8Password, S8Username,
+    SocketOptions, Ssid, TcpSockOpts, UdpSockOpts, WpaKey,
 };
 
 #[cfg(feature = "wep")]
@@ -164,6 +166,8 @@ const HIF_SEND_RETRIES: usize = 1000;
 const FLASH_REG_READ_RETRIES: usize = 10;
 #[cfg(feature = "flash-rw")]
 const FLASH_DUMMY_VALUE: u32 = 0x1084;
+const DRIVER_REV: u32 = 0x13521352; // Firmware rev: 19.5.2
+const DEFAULT_CHIP_CFG: u32 = 0x102; // Reserved (0x100) + ENABLE_PMU bit (0x02)
 
 // todo this needs to be used
 #[allow(dead_code)]
@@ -244,15 +248,19 @@ pub(crate) enum BootStage {
 pub(crate) struct BootState {
     stage: BootStage,
     loop_value: u32,
+    mode: BootMode,
 }
-impl Default for BootState {
-    fn default() -> Self {
+
+impl BootState {
+    pub fn new(mode: BootMode) -> Self {
         Self {
             stage: BootStage::Start,
             loop_value: 0,
+            mode,
         }
     }
 }
+
 impl<X: Xfer> Manager<X> {
     pub fn from_xfer(xfer: X) -> Self {
         Self {
@@ -446,13 +454,12 @@ impl<X: Xfer> Manager<X> {
                 }
             }
             BootStage::Stage4 => {
-                let driver_rev = 0x13521352; // todo
+                // write driver revision
                 self.chip
-                    .single_reg_write(Regs::NmiState.into(), driver_rev)?;
+                    .single_reg_write(Regs::NmiState.into(), DRIVER_REV)?;
                 self.chip_id()?;
                 // write conf
-                let mut conf: u32 = 0;
-                conf |= 0x102; // Reserved + ENABLE_PMU bit
+                let conf: u32 = u32::from(state.mode) | DEFAULT_CHIP_CFG;
                 self.chip.single_reg_write(Regs::NmiGp1.into(), conf)?;
                 let verify = self.chip.single_reg_read(Regs::NmiGp1.into())?;
                 assert_eq!(verify, conf); // todo: loop
@@ -1739,6 +1746,42 @@ impl<X: Xfer> Manager<X> {
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
 
         self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
+    /// Sends a ethernet packet to module.
+    ///
+    /// # Arguments
+    ///
+    /// * `net_pkt` - Ethernet.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the request was successfully sent.
+    /// * `Err(Error)` - If an error occurred while updating the module state.
+    pub(crate) fn send_ethernet_packet(&mut self, net_pkt: &[u8]) -> Result<(), Error> {
+        if net_pkt.is_empty() {
+            return Err(Error::BufferError);
+        }
+        debug!("Code is in send function");
+        let req = write_send_net_pkt_req(net_pkt.len() as u16, ETHERNET_HEADER_LENGTH as u16)?;
+
+        self.write_hif_header_impl(
+            HifRequest::Wifi(WifiRequest::SendEthernetPacket),
+            &req,
+            true,
+            Some((net_pkt.len(), ETHERNET_HEADER_OFFSET - HIF_HEADER_OFFSET)),
+        )?;
+
+        self.chip.dma_block_write(
+            self.not_a_reg_ctrl_4_dma + ETHERNET_HEADER_OFFSET as u32,
+            net_pkt,
+        )?;
+
+        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+    }
+
+    pub(crate) fn recv_ethernet_packet(&mut self, _buffer: &mut [u8]) -> Result<usize, Error> {
+        todo!()
     }
 
     // #endregion write

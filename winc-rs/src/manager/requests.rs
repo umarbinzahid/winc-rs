@@ -18,7 +18,7 @@ use crate::socket::Socket;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
 use super::constants::{
-    AuthType, WifiChannel, CONNECT_AP_PACKET_SIZE, ENABLE_AP_PACKET_SIZE,
+    AuthType, WifiChannel, CONNECT_AP_PACKET_SIZE, ENABLE_AP_PACKET_SIZE, NET_SEND_PACKET_SIZE,
     SET_SOCK_OPTS_PACKET_SIZE, START_PROVISION_PACKET_SIZE,
 };
 
@@ -552,6 +552,19 @@ pub(crate) fn write_ssl_ecc_resp(
             slice.write(&ecdh_info.private_key)?;
         }
     }
+
+    Ok(req)
+}
+
+pub(crate) fn write_send_net_pkt_req(
+    net_pkt_len: u16,
+    net_header_len: u16,
+) -> Result<[u8; NET_SEND_PACKET_SIZE], BufferOverflow> {
+    let mut req = [0u8; NET_SEND_PACKET_SIZE];
+    let mut slice = req.as_mut_slice();
+
+    slice.write(&net_pkt_len.to_le_bytes())?;
+    slice.write(&net_header_len.to_le_bytes())?;
 
     Ok(req)
 }

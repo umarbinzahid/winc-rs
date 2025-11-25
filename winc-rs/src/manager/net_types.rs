@@ -48,6 +48,8 @@ pub type S8Password = ArrayString<MAX_S802_PASSWORD_LEN>;
 /// ECDSA Verify Information.
 #[cfg(feature = "experimental-ecc")]
 pub(crate) type EcdsaVerifyInfo = u32;
+/// Type for Mac Address
+pub type MacAddress = [u8; 6];
 
 /// Wi-Fi Security Credentials.
 #[repr(u8)]

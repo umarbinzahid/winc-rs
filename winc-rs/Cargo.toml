@@ -48,6 +48,22 @@ embedded-nal-async = { version = "0.8.0", optional = true }
 # For PRNG
 rand_core = { version = "0.9", default-features = false, optional = true }
 
+# Smoltcp
+[dependencies.smoltcp]
+version = "0.12.0"
+default-features = false
+features = [
+    "proto-ipv4",
+    "medium-ethernet",
+    "socket-raw",
+    "socket-tcp",
+    "socket-udp",
+    "socket-icmp",
+    "socket-dhcpv4",
+    "socket-dns",
+]
+optional = true
+
 [dev-dependencies]
 async-std = { version= "1.13", features= ["attributes"] }
 test-log = "0.2.11"
@@ -56,7 +72,7 @@ test-log = "0.2.11"
 log = ["dep:log"]
 std = ["log"]
 defmt = ["dep:defmt"]
-default = ["std","async"]
+default = ["std","async","enable-smoltcp-support"]
 embedded-nal-async = ["dep:embedded-nal-async"]
 async = ["dep:embedded-nal-async"]
 rng = ["dep:rand_core"]
@@ -67,6 +83,7 @@ experimental-ota = [] # To enable OTA.
 flash-rw = [] # Enable SPI Flash Read/Write access.
 ssl = [] # Enable SSL.
 experimental-ecc = ["ssl"] # Enables the ECDSA/ECDH functions. Depends on "ssl".
+enable-smoltcp-support = ["dep:smoltcp"]
 
 # Todo: add feature flags to save binary space
 # - TCP

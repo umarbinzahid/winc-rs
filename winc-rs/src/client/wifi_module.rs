@@ -3,8 +3,9 @@ use crate::errors::CommError as Error;
 use embedded_nal::nb;
 
 use crate::manager::{
-    AccessPoint, AuthType, Credentials, FirmwareInfo, HostName, IPConf, ProvisioningInfo,
-    ScanResult, SocketOptions, Ssid, TcpSockOpts, UdpSockOpts, WifiChannel, WifiConnError,
+    AccessPoint, AuthType, BootMode, BootState, Credentials, FirmwareInfo, HostName, IPConf,
+    MacAddress, ProvisioningInfo, ScanResult, SocketOptions, Ssid, TcpSockOpts, UdpSockOpts,
+    WifiChannel, WifiConnError,
 };
 #[cfg(feature = "ssl")]
 use crate::manager::{SslSockConfig, SslSockOpts};
@@ -36,20 +37,12 @@ impl<X: Xfer> WincClient<'_, X> {
         Ok(())
     }
 
-    /// Initializes the Wifi module - boots the firmware and
-    /// does the rest of the initialization.
-    ///
-    /// # Returns
-    ///
-    /// * `()` - The Wifi module has been started.
-    /// * `nb::Error::WouldBlock` - The Wifi module is still starting.
-    /// * `StackError` - An error occurred while starting the Wifi module.
-    pub fn start_wifi_module(&mut self) -> nb::Result<(), StackError> {
+    fn start_wifi_module_impl(&mut self, boot_mode: BootMode) -> nb::Result<(), StackError> {
         match self.callbacks.state {
             WifiModuleState::Reset => {
                 self.callbacks.state = WifiModuleState::Starting;
                 self.manager.set_crc_state(true);
-                self.boot = Some(Default::default());
+                self.boot = Some(BootState::new(boot_mode));
                 Err(nb::Error::WouldBlock)
             }
             WifiModuleState::Starting => {
@@ -67,6 +60,29 @@ impl<X: Xfer> WincClient<'_, X> {
             }
             _ => Err(nb::Error::Other(StackError::InvalidState)),
         }
+    }
+
+    /// Initializes the Wifi module in normal mode - boots the firmware and
+    /// does the rest of the initialization.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - The Wifi module has been started.
+    /// * `nb::Error::WouldBlock` - The Wifi module is still starting.
+    /// * `StackError` - An error occurred while starting the Wifi module.
+    pub fn start_wifi_module(&mut self) -> nb::Result<(), StackError> {
+        self.start_wifi_module_impl(BootMode::Normal)
+    }
+
+    /// Initializes the Wifi module in ethernet mode.
+    ///
+    /// # Returns
+    ///
+    /// * `()` - The Wifi module has been started.
+    /// * `nb::Error::WouldBlock` - The Wifi module is still starting.
+    /// * `StackError` - An error occurred while starting the Wifi module.
+    pub fn start_in_ethernet_mode(&mut self) -> nb::Result<(), StackError> {
+        self.start_wifi_module_impl(BootMode::Ethernet)
     }
 
     /// Initializes the Wifi module in download mode to
@@ -568,6 +584,10 @@ impl<X: Xfer> WincClient<'_, X> {
         }
 
         Ok(())
+    }
+
+    pub fn get_self_mac_address(&mut self, mac: &mut MacAddress) -> Result<(), StackError> {
+        todo!()
     }
 }
 
