@@ -1,8 +1,9 @@
+use crate::manager::Manager;
 use crate::net_ops::op::OpImpl;
 use crate::stack::sock_holder::SocketStore;
 use crate::stack::socket_callbacks::SocketCallbacks;
 use crate::StackError;
-use crate::{manager::Manager, transfer::Xfer, Handle};
+use crate::{transfer::Xfer, Handle};
 
 use core::cell::RefCell;
 use core::marker::PhantomData;
@@ -84,7 +85,7 @@ impl<X: Xfer> AsyncClient<'_, X> {
     /// * `Ok(O::Output)` - The operation completed successfully.
     /// * `Err(StackError)` - The operation failed while being polled.
     async fn poll_op<O: OpImpl<X, Error = StackError>>(
-        &mut self,
+        &self,
         op: &mut O,
     ) -> Result<O::Output, StackError> {
         loop {
