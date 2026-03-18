@@ -553,9 +553,9 @@ impl<X: Xfer> Manager<X> {
             return Err(Error::HifSendFailed);
         }
         // Read DMA address from RCV_CTRL_4
-        let address = self.chip.single_reg_read(Regs::WifiHostRcvCtrl4.into())?;
-        trace!("Dma address: {:x}", address);
-        Ok(address)
+        let dma_address = self.chip.single_reg_read(Regs::WifiHostRcvCtrl4.into())?;
+        trace!("Dma address: {:x}", dma_address);
+        Ok(dma_address)
     }
 
     /// Prepares and writes the HIF header.
@@ -605,17 +605,17 @@ impl<X: Xfer> Manager<X> {
         };
         // Group ID.
         let grpval = req.into();
-        let addr = self.prep_for_hif_send(grpval, opp, len as u16, req_data)?;
+        let dma_address = self.prep_for_hif_send(grpval, opp, len as u16, req_data)?;
 
         self.chip.dma_block_write(
-            addr,
+            dma_address,
             &[
                 grpval, opp, pkglen[0], pkglen[1], 0x00, // unused bytes
                 0x00, 0x00, 0x00,
             ],
         )?;
 
-        Ok(addr)
+        Ok(dma_address)
     }
 
     /// Prepares and writes the HIF header without a data packet.
@@ -1693,10 +1693,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred during the PRNG packet request or preparation.
     pub(crate) fn send_prng(&mut self, addr: u32, len: u16) -> Result<(), Error> {
         let req = write_prng_req(addr, len)?;
-        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::GetPrng), &req, true)?;
+        let dma_addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::GetPrng), &req, true)?;
         self.chip
-            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(addr)
+            .dma_block_write(dma_addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(dma_addr)
     }
 
     /// Sends a request to start provisioning mode.
