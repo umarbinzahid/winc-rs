@@ -11,6 +11,7 @@ use core::ops::DerefMut;
 
 mod dns;
 mod module;
+mod tcp_stack;
 mod udp_stack;
 
 pub struct AsyncClient<'a, X: Xfer> {
