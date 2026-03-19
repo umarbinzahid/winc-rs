@@ -2,13 +2,14 @@ use clap::Parser;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use demos_async::udp_client;
+use demos_async::{http_client, udp_client};
 use embedded_nal_async::UdpStack;
 use std_embedded_nal_async::Stack;
 
 #[derive(Clone, clap::Subcommand, Debug)]
 enum Mode {
     UdpClient,
+    HttpClient,
 }
 
 #[derive(Parser)]
@@ -25,6 +26,9 @@ struct Cli {
 
     #[arg(short, long)]
     port: Option<u16>,
+
+    #[arg(short = 'o', long, value_parser = validate_hostname, help = "Optional hostname (max 64 chars)")]
+    hostname: Option<String>,
 }
 
 #[derive(Debug)]
@@ -43,6 +47,28 @@ impl From<Box<dyn std::error::Error>> for LocalErrors {
     fn from(e: Box<dyn std::error::Error>) -> Self {
         LocalErrors::IoError(e.to_string())
     }
+}
+
+/// Validator function for CLI parser
+fn validate_hostname(s: &str) -> Result<String, String> {
+    if s.len() > http_client::MAX_HOSTNAME_LEN {
+        Err(format!(
+            "hostname too long, max {} characters",
+            http_client::MAX_HOSTNAME_LEN
+        ))
+    } else {
+        Ok(s.to_string())
+    }
+}
+
+/// Converts hostname to string
+fn hostname_to_buf(host: Option<String>) -> Option<[u8; http_client::MAX_HOSTNAME_LEN]> {
+    host.map(|s| {
+        let mut buf = [0u8; http_client::MAX_HOSTNAME_LEN];
+        let bytes = s.as_bytes();
+        buf[..bytes.len()].copy_from_slice(bytes);
+        buf
+    })
 }
 
 fn main() -> Result<(), LocalErrors> {
@@ -96,6 +122,17 @@ fn main() -> Result<(), LocalErrors> {
                     recv_len,
                     &recv_buffer[..recv_len]
                 );
+                Ok::<(), LocalErrors>(())
+            })?;
+        }
+
+        Mode::HttpClient => {
+            smol::block_on(async {
+                let hostname_buf: Option<[u8; http_client::MAX_HOSTNAME_LEN]> =
+                    hostname_to_buf(cli.hostname);
+                http_client::run_http_client(&mut stack, ip_addr, port, hostname_buf.as_ref())
+                    .await
+                    .map_err(|e| LocalErrors::IoError(e.to_string()))?;
                 Ok::<(), LocalErrors>(())
             })?;
         }
