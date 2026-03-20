@@ -578,11 +578,14 @@ impl<X: Xfer> Manager<X> {
         req: HifRequest,
         payload: &[u8],
         req_data: bool,
-        data_packet: Option<(usize /* Data Size */, usize /* Offset */)>,
+        data_packet: Option<(
+            usize, /* Data Size */
+            usize, /* Offset (Add `HIF_HEADER_OFFSET` if required.) */
+        )>,
     ) -> Result<(), Error> {
         // Length of packet to send.
         let len = match data_packet {
-            Some((size, offset)) => HIF_HEADER_OFFSET + size + offset,
+            Some((size, offset)) => size + offset,
             None => payload.len() + HIF_HEADER_OFFSET,
         };
 
@@ -1488,7 +1491,12 @@ impl<X: Xfer> Manager<X> {
         const UDP_IP_HEADER_LENGTH: usize = 28;
         const UDP_TX_PACKET_OFFSET: usize = IP_PACKET_OFFSET + UDP_IP_HEADER_LENGTH;
         let req = write_sendto_req(socket, AF_INET, address, data.len())?;
-        self.write_hif_header(HifRequest::Ip(IpCode::SendTo), &req, true)?;
+        self.write_hif_header_impl(
+            HifRequest::Ip(IpCode::SendTo),
+            &req,
+            true,
+            Some((data.len(), UDP_TX_PACKET_OFFSET)),
+        )?;
         self.chip
             .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
         self.chip.dma_block_write(
@@ -2163,7 +2171,7 @@ impl<X: Xfer> Manager<X> {
             HifRequest::Ssl(SslRequest::SendEccResponse),
             &req,
             true,
-            Some((resp_buffer.len(), req.len())),
+            Some((resp_buffer.len(), req.len() + HIF_HEADER_OFFSET)),
         )?;
 
         // write the control packet
@@ -2310,7 +2318,7 @@ impl<X: Xfer> Manager<X> {
             HifRequest::Wifi(WifiRequest::SendEthernetPacket),
             &req,
             true,
-            Some((net_pkt.len(), ETHERNET_HEADER_OFFSET - HIF_HEADER_OFFSET)),
+            Some((net_pkt.len(), ETHERNET_HEADER_OFFSET)),
         )?;
 
         self.chip
