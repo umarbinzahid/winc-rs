@@ -317,9 +317,7 @@ impl BootState {
 }
 
 /// Structure to manage communication and the interface to the WINC1500 device.
-pub struct Manager<X: Xfer> {
-    // cached addresses
-    not_a_reg_ctrl_4_dma: u32, // todo: make this dynamic/proper
+pub(crate) struct Manager<X: Xfer> {
     /// Low level apis to send and receive data from WINC1500.
     chip: ChipAccess<X>,
     /// Wakers for async operations.
@@ -513,7 +511,7 @@ impl<X: Xfer> Manager<X> {
     ///
     /// # Returns
     ///
-    /// * `Ok(())` - If the HIF header is successfully sent to the chip.
+    /// * `Ok(u32)` - HIF DMA address read from the `WifiHostRcvCtrl4` register.
     /// * `Err(Error)` - If any error occurred while preparing or sending the HIF header.
     fn prep_for_hif_send(
         &mut self,
@@ -521,7 +519,7 @@ impl<X: Xfer> Manager<X> {
         op: u8,
         len: u16,
         req_data: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<u32, Error> {
         const NMI_STATE_REQ_DATA: u8 = 0x80;
 
         // Write NMI state
@@ -555,9 +553,9 @@ impl<X: Xfer> Manager<X> {
             return Err(Error::HifSendFailed);
         }
         // Read DMA address from RCV_CTRL_4
-        self.not_a_reg_ctrl_4_dma = self.chip.single_reg_read(Regs::WifiHostRcvCtrl4.into())?;
-        trace!("Dma address: {:x}", self.not_a_reg_ctrl_4_dma);
-        Ok(())
+        let dma_address = self.chip.single_reg_read(Regs::WifiHostRcvCtrl4.into())?;
+        trace!("Dma address: {:x}", dma_address);
+        Ok(dma_address)
     }
 
     /// Prepares and writes the HIF header.
@@ -571,7 +569,7 @@ impl<X: Xfer> Manager<X> {
     ///
     /// # Returns
     ///
-    /// * `Ok(())` - If the HIF header was successfully prepared and sent to the chip.
+    /// * `Ok(u32)` - HIF DMA address read from the `WifiHostRcvCtrl4` register.
     /// * `Err(Error)` - If an error occurred while preparing or writing the HIF header.
     fn write_hif_header_impl(
         &mut self,
@@ -579,7 +577,7 @@ impl<X: Xfer> Manager<X> {
         payload: &[u8],
         req_data: bool,
         data_packet: Option<(usize /* Data Size */, usize /* Offset */)>,
-    ) -> Result<(), Error> {
+    ) -> Result<u32, Error> {
         // Length of packet to send.
         let len = match data_packet {
             Some((size, offset)) => HIF_HEADER_OFFSET + size + offset,
@@ -607,15 +605,17 @@ impl<X: Xfer> Manager<X> {
         };
         // Group ID.
         let grpval = req.into();
-        self.prep_for_hif_send(grpval, opp, len as u16, req_data)?;
+        let dma_address = self.prep_for_hif_send(grpval, opp, len as u16, req_data)?;
 
         self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma,
+            dma_address,
             &[
                 grpval, opp, pkglen[0], pkglen[1], 0x00, // unused bytes
                 0x00, 0x00, 0x00,
             ],
-        )
+        )?;
+
+        Ok(dma_address)
     }
 
     /// Prepares and writes the HIF header without a data packet.
@@ -628,14 +628,14 @@ impl<X: Xfer> Manager<X> {
     ///
     /// # Returns
     ///
-    /// * `Ok(())` - If the HIF header was successfully prepared and sent to the chip.
+    /// * `Ok(u32)` - HIF DMA address read from the `WifiHostRcvCtrl4` register.
     /// * `Err(Error)` - If an error occurred while preparing or writing the HIF header.
     fn write_hif_header(
         &mut self,
         req: HifRequest,
         payload: &[u8],
         req_data: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<u32, Error> {
         self.write_hif_header_impl(req, payload, req_data, None)
     }
 
@@ -825,7 +825,6 @@ impl<X: Xfer> Manager<X> {
     /// Creates a new `Manager` instance from type implementing the `Xfer` trait.
     pub(crate) fn from_xfer(xfer: X) -> Self {
         Self {
-            not_a_reg_ctrl_4_dma: 0x00,
             chip: ChipAccess::new(xfer),
             #[cfg(feature = "async")]
             wakers: core::array::from_fn(|_| None),
@@ -1261,8 +1260,9 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the connection request was successfully sent.
     /// * `Err(Error)` - If an error occurred while sending the connection request.
     pub(crate) fn send_default_connect(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::DefaultConnect), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr =
+            self.write_hif_header(HifRequest::Wifi(WifiRequest::DefaultConnect), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a Connect request to chip.
@@ -1285,11 +1285,11 @@ impl<X: Xfer> Manager<X> {
         channel: WifiChannel,
         dont_save_credentials: bool,
     ) -> Result<(), Error> {
-        let arr = write_connect_request(ssid, credentials, channel, dont_save_credentials)?;
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::Connect), &arr, false)?;
+        let req = write_connect_request(ssid, credentials, channel, dont_save_credentials)?;
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::Connect), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &arr)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to retrieve the current RSSI (signal strength) of the active Wi-Fi connection.
@@ -1299,8 +1299,8 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the RSSI request was successfully sent.
     /// * `Err(Error)` - If an error occurred while sending the request.
     pub(crate) fn send_get_current_rssi(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::CurrentRssi), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::CurrentRssi), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to retrieve the current Wi-Fi connection information.
@@ -1310,8 +1310,8 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the connection info request was successfully sent.
     /// * `Err(Error)` - If an error occurred while sending the request.
     pub(crate) fn send_get_conn_info(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::GetConnInfo), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::GetConnInfo), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to initiate a Wi-Fi scan on the specified channel for a given duration.
@@ -1327,10 +1327,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred while sending the scan request.
     pub(crate) fn send_scan(&mut self, channel: u8, scantime: u16) -> Result<(), Error> {
         let req = write_scan_req(channel, scantime)?;
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::Scan), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::Scan), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to retrieve the result of a Wi-Fi scan at the specified index.
@@ -1345,10 +1345,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred while sending the scan result request.
     pub(crate) fn send_get_scan_result(&mut self, index: u8) -> Result<(), Error> {
         let req = [index, 0, 0, 0];
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::ScanResult), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::ScanResult), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     // #region ipsend
@@ -1374,10 +1374,10 @@ impl<X: Xfer> Manager<X> {
         marker: u8,
     ) -> Result<(), Error> {
         let req = write_ping_req(dest, ttl, count, marker)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Ping), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::Ping), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to resolve a hostname to an IPv4 address.
@@ -1396,10 +1396,10 @@ impl<X: Xfer> Manager<X> {
         let mut buffer = [0x0u8; GET_HOSTNAME_PACKET_SIZE];
         let req = write_gethostbyname_req(host, &mut buffer)?;
 
-        self.write_hif_header(HifRequest::Ip(IpCode::DnsResolve), req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::DnsResolve), req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to bind the socket to the specified IPv4 address and port.
@@ -1417,10 +1417,10 @@ impl<X: Xfer> Manager<X> {
         let req = write_bind_req(socket, address)?;
         let cmd = self.get_ssl_ip_code(&socket, IpCode::Bind);
 
-        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to start listening for incoming connections on a TCP socket.
@@ -1436,10 +1436,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred while sending the socket listen request.
     pub(crate) fn send_listen(&mut self, socket: Socket, backlog: u8) -> Result<(), Error> {
         let req = write_listen_req(socket, backlog)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::Listen), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::Listen), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to initiate a socket connection to the specified IPv4 address.
@@ -1461,10 +1461,10 @@ impl<X: Xfer> Manager<X> {
         let req = write_connect_req(socket, AF_INET, address, socket.get_ssl_cfg())?;
         let cmd = self.get_ssl_ip_code(&socket, IpCode::Connect);
 
-        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends UDP send request.
@@ -1488,14 +1488,12 @@ impl<X: Xfer> Manager<X> {
         const UDP_IP_HEADER_LENGTH: usize = 28;
         const UDP_TX_PACKET_OFFSET: usize = IP_PACKET_OFFSET + UDP_IP_HEADER_LENGTH;
         let req = write_sendto_req(socket, AF_INET, address, data.len())?;
-        self.write_hif_header(HifRequest::Ip(IpCode::SendTo), &req, true)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::SendTo), &req, true)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma + UDP_TX_PACKET_OFFSET as u32,
-            data,
-        )?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.chip
+            .dma_block_write(addr + UDP_TX_PACKET_OFFSET as u32, data)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a TCP send request.
@@ -1545,13 +1543,17 @@ impl<X: Xfer> Manager<X> {
             }
         };
 
-        self.write_hif_header_impl(HifRequest::Ip(cmd), &req, true, Some((data.len(), offset)))?;
+        let addr = self.write_hif_header_impl(
+            HifRequest::Ip(cmd),
+            &req,
+            true,
+            Some((data.len(), offset)),
+        )?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
         // The offset already includes the HIF_HEADER_OFFSET, so it is not added here.
-        self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + offset as u32, data)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.chip.dma_block_write(addr + offset as u32, data)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to receive data from the specified TCP socket, with a timeout.
@@ -1569,10 +1571,10 @@ impl<X: Xfer> Manager<X> {
         let req = write_recv_req(socket, timeout)?;
         let cmd = self.get_ssl_ip_code(&socket, IpCode::Recv);
 
-        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to receive data from the specified UDP socket, with a timeout.
@@ -1588,10 +1590,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred while sending the UDP receive request.
     pub(crate) fn send_recvfrom(&mut self, socket: Socket, timeout: u32) -> Result<(), Error> {
         let req = write_recv_req(socket, timeout)?;
-        self.write_hif_header(HifRequest::Ip(IpCode::RecvFrom), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::RecvFrom), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to close the specified socket.
@@ -1608,10 +1610,10 @@ impl<X: Xfer> Manager<X> {
         let req = write_close_req(socket)?;
         let cmd = self.get_ssl_ip_code(&socket, IpCode::Close);
 
-        self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(cmd), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Send a set socket option request to module.
@@ -1631,10 +1633,10 @@ impl<X: Xfer> Manager<X> {
         option: &UdpSockOpts,
     ) -> Result<(), Error> {
         let req = write_setsockopt_req(socket, (*option).into(), option.get_value())?;
-        self.write_hif_header(HifRequest::Ip(IpCode::SetSocketOption), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::SetSocketOption), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Send a set SSL socket option request to module.
@@ -1656,10 +1658,10 @@ impl<X: Xfer> Manager<X> {
     ) -> Result<(), Error> {
         let req = write_ssl_setsockopt_req(socket, option)?;
 
-        self.write_hif_header(HifRequest::Ip(IpCode::SslSetSockOpt), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::SslSetSockOpt), &req, false)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Send a disconnect request to module.
@@ -1669,8 +1671,8 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the request is successfully sent.
     /// * `Err(Error)` - If an error occurred while preparing or sending the request.
     pub(crate) fn send_disconnect(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::Disconnect), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::Disconnect), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a PRNG request to the chip.
@@ -1691,10 +1693,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurred during the PRNG packet request or preparation.
     pub(crate) fn send_prng(&mut self, addr: u32, len: u16) -> Result<(), Error> {
         let req = write_prng_req(addr, len)?;
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::GetPrng), &req, true)?;
+        let dma_addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::GetPrng), &req, true)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(dma_addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(dma_addr)
     }
 
     /// Sends a request to start provisioning mode.
@@ -1718,14 +1720,14 @@ impl<X: Xfer> Manager<X> {
         http_redirect: bool,
     ) -> Result<(), Error> {
         let req = write_start_provisioning_req(ap, hostname, http_redirect)?;
-        self.write_hif_header(
+        let addr = self.write_hif_header(
             HifRequest::Wifi(WifiRequest::StartProvisionMode),
             &req,
             true,
         )?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to stop provisioning mode.
@@ -1735,8 +1737,9 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the request is successfully sent.
     /// * `Err(Error)` - If an error occurs during packet preparation or transmission.
     pub(crate) fn send_stop_provisioning(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::StopProvisionMode), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr =
+            self.write_hif_header(HifRequest::Wifi(WifiRequest::StopProvisionMode), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to enable Access Point mode.
@@ -1751,10 +1754,10 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurs during packet preparation or sending.
     pub(crate) fn send_enable_access_point(&mut self, ap: &AccessPoint) -> Result<(), Error> {
         let req = write_en_ap_req(ap)?;
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::EnableAp), &req, true)?;
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::EnableAp), &req, true)?;
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to disable Access Point mode.
@@ -1764,8 +1767,8 @@ impl<X: Xfer> Manager<X> {
     /// * `Ok(())` - If the request is successfully sent.
     /// * `Err(Error)` - If an error occurs during packet preparation or sending.
     pub(crate) fn send_disable_access_point(&mut self) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Wifi(WifiRequest::DisableAp), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Wifi(WifiRequest::DisableAp), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Send a request to start the OTA update for either winc1500 network stack or cortus processor.
@@ -1791,12 +1794,10 @@ impl<X: Xfer> Manager<X> {
         } else {
             OtaRequest::StartFirmwareUpdate
         };
-        self.write_hif_header(HifRequest::Ota(req_id), server_url, false)?;
-        self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32,
-            server_url,
-        )?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Ota(req_id), server_url, false)?;
+        self.chip
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, server_url)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends an OTA request (rollback, abort, switch) either for the
@@ -1812,8 +1813,8 @@ impl<X: Xfer> Manager<X> {
     /// * `Err(Error)` - If an error occurs during packet preparation or sending.
     #[cfg(feature = "experimental-ota")]
     pub(crate) fn send_ota_request(&mut self, request: OtaRequest) -> Result<(), Error> {
-        self.write_hif_header(HifRequest::Ota(request), &[], false)?;
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        let addr = self.write_hif_header(HifRequest::Ota(request), &[], false)?;
+        self.write_ctrl3(addr)
     }
 
     /// Sends a command to read the flash status register.
@@ -2108,12 +2109,12 @@ impl<X: Xfer> Manager<X> {
     pub(crate) fn send_ssl_sock_create(&mut self, socket: Socket) -> Result<(), Error> {
         let req = [socket.v, 0, 0, 0];
 
-        self.write_hif_header(HifRequest::Ip(IpCode::SslCreate), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::SslCreate), &req, false)?;
 
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
 
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.write_ctrl3(addr)
     }
 
     /// Sends a request to configure the SSL certificate expiry option.
@@ -2130,12 +2131,12 @@ impl<X: Xfer> Manager<X> {
     pub(crate) fn send_ssl_cert_expiry(&mut self, opt: SslCertExpiryOpt) -> Result<(), Error> {
         let req = u32::to_le_bytes(opt.into());
 
-        self.write_hif_header(HifRequest::Ip(IpCode::SslExpCheck), &req, false)?;
+        let addr = self.write_hif_header(HifRequest::Ip(IpCode::SslExpCheck), &req, false)?;
 
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
 
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.write_ctrl3(addr)
     }
 
     /// Sends an ECC response to the module.
@@ -2159,7 +2160,7 @@ impl<X: Xfer> Manager<X> {
     ) -> Result<(), Error> {
         let req = write_ssl_ecc_resp(ecc_info, ecdh_info)?;
 
-        self.write_hif_header_impl(
+        let addr = self.write_hif_header_impl(
             HifRequest::Ssl(SslRequest::SendEccResponse),
             &req,
             true,
@@ -2167,14 +2168,14 @@ impl<X: Xfer> Manager<X> {
         )?;
 
         // write the control packet
-        let mut reg = self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32;
+        let mut reg = addr + HIF_HEADER_OFFSET as u32;
         self.chip.dma_block_write(reg, &req)?;
 
         // write the data packet
         reg += req.len() as u32;
         self.chip.dma_block_write(reg, resp_buffer)?;
 
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.write_ctrl3(addr)
     }
 
     /// Reads ECC information (curve type, hash algorithm, and signature) from the WINC module.
@@ -2240,12 +2241,13 @@ impl<X: Xfer> Manager<X> {
     pub(crate) fn send_ssl_set_cipher_suite(&mut self, cipher_bitmap: u32) -> Result<(), Error> {
         let req = cipher_bitmap.to_le_bytes();
 
-        self.write_hif_header(HifRequest::Ssl(SslRequest::SetCipherSuites), &req, false)?;
+        let addr =
+            self.write_hif_header(HifRequest::Ssl(SslRequest::SetCipherSuites), &req, false)?;
 
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
 
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.write_ctrl3(addr)
     }
 
     /// Reads the MAC address from the OTP (One-Time Programmable) eFuse memory.
@@ -2306,7 +2308,7 @@ impl<X: Xfer> Manager<X> {
         }
         let req = write_send_net_pkt_req(net_pkt.len() as u16, ETHERNET_HEADER_LENGTH as u16)?;
 
-        self.write_hif_header_impl(
+        let addr = self.write_hif_header_impl(
             HifRequest::Wifi(WifiRequest::SendEthernetPacket),
             &req,
             true,
@@ -2314,14 +2316,12 @@ impl<X: Xfer> Manager<X> {
         )?;
 
         self.chip
-            .dma_block_write(self.not_a_reg_ctrl_4_dma + HIF_HEADER_OFFSET as u32, &req)?;
+            .dma_block_write(addr + HIF_HEADER_OFFSET as u32, &req)?;
 
-        self.chip.dma_block_write(
-            self.not_a_reg_ctrl_4_dma + ETHERNET_HEADER_OFFSET as u32,
-            net_pkt,
-        )?;
+        self.chip
+            .dma_block_write(addr + ETHERNET_HEADER_OFFSET as u32, net_pkt)?;
 
-        self.write_ctrl3(self.not_a_reg_ctrl_4_dma)
+        self.write_ctrl3(addr)
     }
 
     /// Receives an Ethernet packet from the module.
